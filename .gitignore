@@ -1,0 +1,6 @@
+previous_design
+.vscode
+.DS_Store
+__pycache__
+**/*.pkl
+benchmark_results
