@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
 from .base import BaseShape
 
 
@@ -54,7 +55,7 @@ class Grid(BaseShape):
 
     MAX_DIVISIONS = 50
 
-    def generate(self, n_divisions: tuple[float, float] = (0.1, 0.1), **params: Any) -> list[np.ndarray]:
+    def generate(self, n_divisions: tuple[float, float] = (0.1, 0.1), **params: Any) -> Geometry:
         """Generate a 1x1 square grid with specified divisions.
 
         Args:
@@ -62,11 +63,12 @@ class Grid(BaseShape):
             **params: Additional parameters (ignored)
 
         Returns:
-            List of vertex arrays for grid lines
+            Geometry object containing grid lines
         """
         nx, ny = n_divisions
         nx = int(nx * Grid.MAX_DIVISIONS)
         ny = int(ny * Grid.MAX_DIVISIONS)
 
         # Generate grid (caching handled by BaseShape)
-        return _generate_grid(nx, ny)
+        vertices_list = _generate_grid(nx, ny)
+        return Geometry.from_lines(vertices_list)

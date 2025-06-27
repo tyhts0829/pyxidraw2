@@ -8,6 +8,7 @@ import pyglet
 from pyglet.window import key
 
 from engine.core.frame_clock import FrameClock
+from engine.core.geometry import Geometry
 from engine.core.render_window import RenderWindow
 from engine.io.manager import connect_midi_controllers
 from engine.io.service import MidiService
@@ -17,7 +18,6 @@ from engine.pipeline.receiver import StreamReceiver
 from engine.pipeline.worker import WorkerPool
 from engine.render.renderer import LineRenderer
 from engine.ui.overlay import OverlayHUD
-from geometry import Geometry
 from util.constants import CANVAS_SIZES
 
 

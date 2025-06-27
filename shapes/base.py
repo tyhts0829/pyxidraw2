@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
+
 
 class BaseShape(ABC):
     """Base class for all shape generators with built-in caching support."""
@@ -14,11 +16,11 @@ class BaseShape(ABC):
         self._cache_enabled = True
 
     @abstractmethod
-    def generate(self, **params: Any) -> list[np.ndarray]:
+    def generate(self, **params: Any) -> Geometry:
         """Generate shape vertices.
 
         Returns:
-            List of vertex arrays, where each array has shape (N, 3)
+            Geometry object containing the shape data
         """
         pass
 
@@ -28,25 +30,25 @@ class BaseShape(ABC):
         scale: tuple[float, float, float] = (1, 1, 1),
         rotate: tuple[float, float, float] = (0, 0, 0),
         **params: Any,
-    ) -> list[np.ndarray]:
+    ) -> Geometry:
         """Generate shape with automatic caching and transformations."""
         # Generate base shape
         if self._cache_enabled:
             # Convert params to hashable format (excluding transformations)
             hashable_params = self._make_hashable(params)
-            vertices_list = self._cached_generate(hashable_params)
+            geometry = self._cached_generate(hashable_params)
         else:
-            vertices_list = self.generate(**params)
+            geometry = self.generate(**params)
 
         # Apply transformations if any are non-default
         if center != (0, 0, 0) or scale != (1, 1, 1) or rotate != (0, 0, 0):
-            # Lazy import to avoid circular dependency
+            # Direct Geometry support
             from api import effects
-            return effects.transform(vertices_list, center, scale, rotate)
-        return vertices_list
+            return effects.transform(geometry, center, scale, rotate)
+        return geometry
 
-    @lru_cache(maxsize=None)
-    def _cached_generate(self, hashable_params: tuple) -> list[np.ndarray]:
+    @lru_cache(maxsize=128)
+    def _cached_generate(self, hashable_params: tuple) -> Geometry:
         """Cached version of generate method."""
         params = self._unmake_hashable(hashable_params)
         return self.generate(**params)

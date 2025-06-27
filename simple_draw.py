@@ -2,7 +2,7 @@ import arc
 import numpy as np
 
 from api.runner import run_sketch
-from geometry import Geometry
+from engine.core.geometry import Geometry
 from util.constants import CANVAS_SIZES
 
 cw, ch = CANVAS_SIZES["SQUARE_200"]

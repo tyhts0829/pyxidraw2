@@ -5,13 +5,14 @@ from typing import Any
 import numpy as np
 
 from .base import BaseShape
+from engine.core.geometry import Geometry
 
 
 class Cylinder(BaseShape):
     """Cylinder shape generator."""
     
     def generate(self, radius: float = 0.3, height: float = 0.6, 
-                segments: int = 32, **params: Any) -> list[np.ndarray]:
+                segments: int = 32, **params: Any) -> Geometry:
         """Generate a cylinder.
         
         Args:
@@ -21,7 +22,7 @@ class Cylinder(BaseShape):
             **params: Additional parameters (ignored)
             
         Returns:
-            List of vertex arrays for cylinder lines
+            Geometry object containing cylinder lines
         """
         vertices_list = []
         
@@ -58,4 +59,4 @@ class Cylinder(BaseShape):
             ], dtype=np.float32)
             vertices_list.append(vertical_line)
         
-        return vertices_list
+        return Geometry.from_lines(vertices_list)

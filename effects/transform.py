@@ -1,40 +1,45 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 from numba import njit
 
+from engine.core.geometry import Geometry
 from .base import BaseEffect
 
 
 @njit(fastmath=True, cache=True)
-def _apply_transformations(
-    vertices_list: Sequence[np.ndarray],
-    center: tuple[float, float, float] = (0, 0, 0),
-    scale: tuple[float, float, float] = (1, 1, 1),
-    rotate: tuple[float, float, float] = (0, 0, 0),
-) -> list[np.ndarray]:
-    center_np = np.array(center, dtype=np.float32)
-    scale_np = np.array(scale, dtype=np.float32)
-    rotate_np = np.array(rotate, dtype=np.float32)
-    transformed_list = []
-    for vertices in vertices_list:
-        sx = np.sin(rotate_np[0])
-        cx = np.cos(rotate_np[0])
-        sy = np.sin(rotate_np[1])
-        cy = np.cos(rotate_np[1])
-        sz = np.sin(rotate_np[2])
-        cz = np.cos(rotate_np[2])
-        Rx = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float32)
-        Ry = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float32)
-        Rz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
-        R = Rz @ Ry @ Rx
-        rotated = vertices @ R.T
-        transformed = center_np + rotated * scale_np
-        transformed_list.append(transformed)
-    return transformed_list
+def _apply_combined_transform(
+    vertices: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    rotate: np.ndarray,
+) -> np.ndarray:
+    """頂点に組み合わせ変換を適用します。"""
+    # 回転行列を一度だけ計算
+    sx, sy, sz = np.sin(rotate)
+    cx, cy, cz = np.cos(rotate)
+    
+    # Z * Y * X の結合行列を直接計算
+    R = np.empty((3, 3), dtype=np.float32)
+    R[0, 0] = cy * cz
+    R[0, 1] = sx * sy * cz - cx * sz
+    R[0, 2] = cx * sy * cz + sx * sz
+    R[1, 0] = cy * sz
+    R[1, 1] = sx * sy * sz + cx * cz
+    R[1, 2] = cx * sy * sz - sx * cz
+    R[2, 0] = -sy
+    R[2, 1] = sx * cy
+    R[2, 2] = cx * cy
+    
+    # 全頂点に変換を一度に適用（スケール -> 回転 -> 移動）
+    scaled = vertices * scale
+    rotated = scaled @ R.T
+    transformed = rotated + center
+    
+    return transformed
 
 
 class Transform(BaseEffect):
@@ -44,32 +49,45 @@ class Transform(BaseEffect):
 
     def apply(
         self,
-        vertices_list: list[np.ndarray],
+        geometry: Geometry,
         center: tuple[float, float, float] = (0, 0, 0),
         scale: tuple[float, float, float] = (1, 1, 1),
         rotate: tuple[float, float, float] = (0, 0, 0),
         **params: Any,
-    ) -> list[np.ndarray]:
-        """
+    ) -> Geometry:
+        """変換エフェクトを適用します。
 
         Args:
-            vertices_list: 入力頂点配列
+            geometry: 入力Geometry
             center: 変換の中心点 (x, y, z)
             scale: スケール係数 (x, y, z)
             rotate: 回転角度（ラジアン） (x, y, z) 入力は0.0-1.0の範囲を想定。内部でmath.tauを掛けてラジアンに変換される。
             **params: 追加パラメータ（無視される）
 
+        Returns:
+            変換されたGeometry
         """
 
-        # エッジケース: 空のリスト
-        if not vertices_list:
-            return []
+        # エッジケース: 空の座標配列
+        if len(geometry.coords) == 0:
+            return geometry
 
-        # tau
-        rotate_radians = (
+        # エッジケース: 変換がない場合
+        if (center == (0, 0, 0) and scale == (1, 1, 1) and 
+            abs(rotate[0]) < 1e-10 and abs(rotate[1]) < 1e-10 and abs(rotate[2]) < 1e-10):
+            return geometry
+
+        # NumPy配列に変換
+        center_np = np.array(center, dtype=np.float32)
+        scale_np = np.array(scale, dtype=np.float32)
+        rotate_radians = np.array([
             rotate[0] * self.TAU,
             rotate[1] * self.TAU,
             rotate[2] * self.TAU,
-        )
+        ], dtype=np.float32)
 
-        return _apply_transformations(vertices_list, center=center, scale=scale, rotate=rotate_radians)
+        # 全頂点に組み合わせ変換を一度に適用
+        transformed_coords = _apply_combined_transform(geometry.coords, center_np, scale_np, rotate_radians)
+        
+        # 新しいGeometryを作成（offsetsは変更なし）
+        return Geometry(transformed_coords, geometry.offsets)

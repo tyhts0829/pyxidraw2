@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 from numba import njit
 
+from engine.core.geometry import Geometry
 from .base import BaseEffect
 
 
@@ -21,40 +22,35 @@ def _apply_scaling(vertices: np.ndarray, scale_array: np.ndarray, center: np.nda
 class Scaling(BaseEffect):
     """指定された軸に沿って頂点をスケールします。"""
     
-    def apply(self, vertices_list: list[np.ndarray],
+    def apply(self, geometry: Geometry,
              center: tuple[float, float, float] = (0, 0, 0),
              scale: tuple[float, float, float] = (1, 1, 1),
-             **params: Any) -> list[np.ndarray]:
+             **params: Any) -> Geometry:
         """スケールエフェクトを適用します。
         
         Args:
-            vertices_list: 入力頂点配列
+            geometry: 入力Geometry
             center: スケーリングの中心点 (x, y, z)
             scale: 各軸のスケール率 (x, y, z)
             **params: 追加パラメータ（無視される）
             
         Returns:
-            スケールされた頂点配列
+            スケールされたGeometry
         """
-        # エッジケース: 空のリスト
-        if not vertices_list:
-            return []
-        
-        # スケール値がすべて1の場合は元のデータをコピーして返す
+        # スケール値がすべて1の場合は元のデータをそのまま返す
         if scale == (1, 1, 1):
-            return [vertices.copy() for vertices in vertices_list]
+            return geometry
+        
+        # エッジケース: 空の座標配列
+        if len(geometry.coords) == 0:
+            return geometry
         
         # NumPy配列に変換
         scale_np = np.array(scale, dtype=np.float32)
         center_np = np.array(center, dtype=np.float32)
         
-        # 各頂点配列にスケーリングを適用
-        new_vertices_list = []
-        for vertices in vertices_list:
-            if len(vertices) == 0:
-                new_vertices_list.append(vertices)
-            else:
-                scaled = _apply_scaling(vertices, scale_np, center_np)
-                new_vertices_list.append(scaled)
+        # 全頂点にスケーリングを一度に適用
+        scaled_coords = _apply_scaling(geometry.coords, scale_np, center_np)
         
-        return new_vertices_list
+        # 新しいGeometryを作成（offsetsは変更なし）
+        return Geometry(scaled_coords, geometry.offsets)

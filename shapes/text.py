@@ -10,6 +10,7 @@ from fontTools.pens.recordingPen import RecordingPen
 from fontTools.ttLib import TTFont
 
 from .base import BaseShape
+from engine.core.geometry import Geometry
 
 
 @njit(fastmath=True, cache=True)
@@ -248,7 +249,7 @@ class Text(BaseShape):
         font_number: int = 0,
         align: str = "center",
         **params: Any,
-    ) -> list[np.ndarray]:
+    ) -> Geometry:
         """Generate text as line segments from font outlines.
 
         Args:
@@ -260,7 +261,7 @@ class Text(BaseShape):
             **params: Additional parameters (ignored)
 
         Returns:
-            List of vertex arrays for text outlines
+            Geometry object containing text outlines
         """
         vertices_list = []
 
@@ -296,7 +297,7 @@ class Text(BaseShape):
         else:
             vertices_list = []
 
-        return vertices_list
+        return Geometry.from_lines(vertices_list)
 
     def _get_initial_offset(self, total_width: float, align: str) -> float:
         """Calculate initial offset based on alignment."""

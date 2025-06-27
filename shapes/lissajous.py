@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
 from .base import BaseShape
 
 
@@ -11,7 +12,7 @@ class Lissajous(BaseShape):
     """Lissajous curve shape generator."""
     
     def generate(self, freq_x: float = 3.0, freq_y: float = 2.0, 
-                phase: float = 0.0, points: int = 1000, **params: Any) -> list[np.ndarray]:
+                phase: float = 0.0, points: int = 1000, **params: Any) -> Geometry:
         """Generate a Lissajous curve.
         
         Args:
@@ -22,7 +23,7 @@ class Lissajous(BaseShape):
             **params: Additional parameters (ignored)
             
         Returns:
-            List containing a single array of vertices
+            Geometry object containing the curve vertices
         """
         t = np.linspace(0, 2 * np.pi, points)
         
@@ -32,4 +33,4 @@ class Lissajous(BaseShape):
         
         vertices = np.stack([x, y, z], axis=1).astype(np.float32)
         
-        return [vertices]
+        return Geometry.from_lines([vertices])

@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .base import BaseShape
+from engine.core.geometry import Geometry
 
 
 class Polyhedron(BaseShape):
@@ -54,7 +55,7 @@ class Polyhedron(BaseShape):
                     with open(pkl_file, "rb") as f:
                         cls._vertices_cache[polyhedron] = pickle.load(f)
     
-    def generate(self, polygon_type: str | int = "tetrahedron", **params: Any) -> list[np.ndarray]:
+    def generate(self, polygon_type: str | int = "tetrahedron", **params: Any) -> Geometry:
         """Generate a regular polyhedron.
         
         Args:
@@ -62,7 +63,7 @@ class Polyhedron(BaseShape):
             **params: Additional parameters (ignored)
             
         Returns:
-            List of vertex arrays for polyhedron edges
+            Geometry object containing polyhedron edges
         """
         if polygon_type not in self._TYPE_MAP:
             raise ValueError(f"Invalid polygon_type: {polygon_type}")
@@ -76,11 +77,12 @@ class Polyhedron(BaseShape):
             vertices_list = self._vertices_cache[shape_name]
             # Convert to list of numpy arrays if needed
             if isinstance(vertices_list, list):
-                return [np.array(v, dtype=np.float32) for v in vertices_list]
-            return vertices_list
+                converted_list = [np.array(v, dtype=np.float32) for v in vertices_list]
+                return Geometry.from_lines(converted_list)
+            return Geometry.from_lines(vertices_list)
         
         # Fallback: generate simple polyhedron
-        return self._generate_simple_polyhedron(shape_name)
+        return Geometry.from_lines(self._generate_simple_polyhedron(shape_name))
     
     def _generate_simple_polyhedron(self, shape_name: str) -> list[np.ndarray]:
         """Generate simple polyhedron vertices."""

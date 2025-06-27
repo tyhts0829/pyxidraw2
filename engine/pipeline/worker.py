@@ -3,7 +3,8 @@ import multiprocessing as mp
 from queue import Full
 from typing import Callable, Mapping
 
-from geometry import Geometry
+from engine.core.geometry import Geometry
+
 from ..core.tickable import Tickable
 from .packet import RenderPacket
 from .task import RenderTask

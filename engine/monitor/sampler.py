@@ -7,7 +7,8 @@ from typing import Mapping
 import numpy as np
 import psutil
 
-from geometry import Geometry
+from engine.core.geometry import Geometry
+
 from ..core.tickable import Tickable
 from ..pipeline.buffer import SwapBuffer
 

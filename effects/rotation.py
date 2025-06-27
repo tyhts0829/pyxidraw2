@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from numba import njit
 
+from engine.core.geometry import Geometry
 from .base import BaseEffect
 
 
@@ -58,35 +59,35 @@ class Rotation(BaseEffect):
 
     def apply(
         self,
-        vertices_list: list[np.ndarray],
+        geometry: Geometry,
         center: tuple[float, float, float] = (0, 0, 0),
         rotate: tuple[float, float, float] = (0, 0, 0),
         **params: Any,
-    ) -> list[np.ndarray]:
+    ) -> Geometry:
         """回転エフェクトを適用します。
 
         Args:
-            vertices_list: 入力頂点配列
+            geometry: 入力Geometry
             center: 回転の中心点 (x, y, z)
             rotate: 各軸周りの回転角（ラジアン）(x, y, z) 入力は0.0-1.0の範囲を想定。内部でmath.tauを掛けてラジアンに変換される。
             **params: 追加パラメータ（無視される）
 
         Returns:
-            回転された頂点配列
+            回転されたGeometry
         """
-        # エッジケース: 空のリスト
-        if not vertices_list:
-            return []
-
         # 回転角度を抽出
         rotate_x, rotate_y, rotate_z = rotate
         rotate_x *= self.TAU  # 0.0-1.0 -> 0.0-2π
-        rotate_y *= self.TAU  # 0.0-1.0 ->
+        rotate_y *= self.TAU  # 0.0-1.0 -> 0.0-2π
         rotate_z *= self.TAU
 
-        # エッジケース: 回転がない場合は元のデータをコピーして返す
+        # エッジケース: 回転がない場合は元のデータをそのまま返す
         if abs(rotate_x) < 1e-10 and abs(rotate_y) < 1e-10 and abs(rotate_z) < 1e-10:
-            return [vertices.copy() for vertices in vertices_list]
+            return geometry
+
+        # エッジケース: 空の座標配列
+        if len(geometry.coords) == 0:
+            return geometry
 
         # 統合された回転行列を作成
         R = _create_rotation_matrix(rotate_x, rotate_y, rotate_z)
@@ -94,13 +95,8 @@ class Rotation(BaseEffect):
         # 中心点をnumpy配列に変換
         center_np = np.array(center, dtype=np.float32)
 
-        # 各頂点配列に回転を適用
-        new_vertices_list = []
-        for vertices in vertices_list:
-            if len(vertices) == 0:
-                new_vertices_list.append(vertices)
-            else:
-                rotated = _apply_rotation_inplace(vertices, R, center_np)
-                new_vertices_list.append(rotated)
+        # 全頂点に回転を一度に適用
+        rotated_coords = _apply_rotation_inplace(geometry.coords, R, center_np)
 
-        return new_vertices_list
+        # 新しいGeometryを作成（offsetsは変更なし）
+        return Geometry(rotated_coords, geometry.offsets)

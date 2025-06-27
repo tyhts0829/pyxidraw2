@@ -22,7 +22,8 @@ from typing import Sequence
 import moderngl as mgl
 import numpy as np
 
-from geometry import Geometry
+from engine.core.geometry import Geometry
+
 from ..core.tickable import Tickable
 from ..pipeline.buffer import SwapBuffer
 from .line_mesh import LineMesh
@@ -114,22 +115,22 @@ def _geometry_to_vertices_indices(
     そのため、この関数でデータをまとめて効率よくGPUに渡す。"""
     coords = geometry.coords.astype(np.float32)
     offsets = geometry.offsets
-    
+
     num_lines = len(offsets) - 1
     total_verts = len(coords)
     total_inds = total_verts + num_lines
-    
+
     indices = np.empty(total_inds, dtype=np.uint32)
-    
+
     cursor = 0
     for i in range(num_lines):
         start_idx = offsets[i]
         end_idx = offsets[i + 1]
         line_length = end_idx - start_idx
-        
+
         indices[cursor : cursor + line_length] = np.arange(start_idx, end_idx, dtype=np.uint32)
         cursor += line_length
         indices[cursor] = prim_restart_idx
         cursor += 1
-    
+
     return coords, indices

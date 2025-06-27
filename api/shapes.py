@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
 from shapes import ShapeFactory
 
 # グローバル形状ファクトリインスタンス
@@ -16,7 +17,7 @@ def polygon(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """正多角形を生成します。
 
     Args:
@@ -27,7 +28,7 @@ def polygon(
         **params: 追加パラメータ
 
     Returns:
-        頂点の単一配列を含むリスト
+        正多角形の頂点を含むGeometry
     """
     shape = _factory.create("polygon")
     return shape(n_sides=n_sides, center=center, scale=scale, rotate=rotate, **params)
@@ -39,7 +40,7 @@ def sphere(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """球体を生成します。
 
     Args:
@@ -50,7 +51,7 @@ def sphere(
         **params: 追加パラメータ
 
     Returns:
-        球体三角形の頂点配列のリスト
+        球体三角形の頂点を含むGeometry
     """
     shape = _factory.create("sphere")
     return shape(subdivisions=subdivisions, center=center, scale=scale, rotate=rotate, **params)
@@ -62,7 +63,7 @@ def grid(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """グリッドを生成します。
 
     Args:
@@ -73,7 +74,7 @@ def grid(
         **params: 追加パラメータ
 
     Returns:
-        グリッド線の頂点配列のリスト
+        グリッド線の頂点を含むGeometry
     """
     shape = _factory.create("grid")
     return shape(n_divisions=n_divisions, center=center, scale=scale, rotate=rotate, **params)
@@ -85,7 +86,7 @@ def polyhedron(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """正多面体を生成します。
 
     Args:
@@ -96,7 +97,7 @@ def polyhedron(
         **params: 追加パラメータ
 
     Returns:
-        多面体の端の頂点配列のリスト
+        多面体の端の頂点を含むGeometry
     """
     shape = _factory.create("polyhedron")
     return shape(polygon_type=polygon_type, center=center, scale=scale, rotate=rotate, **params)
@@ -111,7 +112,7 @@ def lissajous(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """リサージュ曲線を生成します。
 
     Args:
@@ -125,7 +126,7 @@ def lissajous(
         **params: 追加パラメータ
 
     Returns:
-        頂点の単一配列を含むリスト
+        頂点を含むGeometry
     """
     shape = _factory.create("lissajous")
     return shape(
@@ -142,7 +143,7 @@ def torus(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """トーラスを生成します。
 
     Args:
@@ -156,7 +157,7 @@ def torus(
         **params: 追加パラメータ
 
     Returns:
-        トーラス線の頂点配列のリスト
+        トーラス線の頂点を含むGeometry
     """
     shape = _factory.create("torus")
     return shape(
@@ -179,7 +180,7 @@ def cylinder(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """円柱を生成します。
 
     Args:
@@ -192,7 +193,7 @@ def cylinder(
         **params: 追加パラメータ
 
     Returns:
-        円柱線の頂点配列のリスト
+        円柱線の頂点を含むGeometry
     """
     shape = _factory.create("cylinder")
     return shape(radius=radius, height=height, segments=segments, center=center, scale=scale, rotate=rotate, **params)
@@ -206,7 +207,7 @@ def cone(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """円錐を生成します。
 
     Args:
@@ -219,7 +220,7 @@ def cone(
         **params: 追加パラメータ
 
     Returns:
-        円錐線の頂点配列のリスト
+        円錐線の頂点を含むGeometry
     """
     shape = _factory.create("cone")
     return shape(radius=radius, height=height, segments=segments, center=center, scale=scale, rotate=rotate, **params)
@@ -234,7 +235,7 @@ def capsule(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """カプセル形状を生成します。
 
     Args:
@@ -248,7 +249,7 @@ def capsule(
         **params: 追加パラメータ
 
     Returns:
-        カプセル線の頂点配列のリスト
+        カプセル線の頂点を含むGeometry
     """
     shape = _factory.create("capsule")
     return shape(
@@ -271,7 +272,7 @@ def attractor(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """ストレンジアトラクターを生成します。
 
     Args:
@@ -284,7 +285,7 @@ def attractor(
         **params: 追加パラメータ
 
     Returns:
-        頂点の単一配列を含むリスト
+        頂点を含むGeometry
     """
     shape = _factory.create("attractor")
     return shape(
@@ -299,7 +300,7 @@ def text(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """テキストを線分として生成します。
 
     Args:
@@ -311,7 +312,7 @@ def text(
         **params: 追加パラメータ
 
     Returns:
-        テキストアウトラインの頂点配列のリスト
+        テキストアウトラインの頂点を含むGeometry
     """
     shape = _factory.create("text")
     return shape(text=text, size=size, center=center, scale=scale, rotate=rotate, **params)
@@ -324,7 +325,7 @@ def asemic_glyph(
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
     **params: Any,
-) -> list[np.ndarray]:
+) -> Geometry:
     """抽象的なグリフ状の形状を生成します。
 
     Args:
@@ -336,7 +337,7 @@ def asemic_glyph(
         **params: 追加パラメータ
 
     Returns:
-        グリフストロークの頂点配列のリスト
+        グリフストロークの頂点を含むGeometry
     """
     shape = _factory.create("asemic_glyph")
     return shape(complexity=complexity, seed=seed, center=center, scale=scale, rotate=rotate, **params)

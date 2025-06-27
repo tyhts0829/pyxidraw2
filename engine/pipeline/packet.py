@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass
 
-from geometry import Geometry
+from engine.core.geometry import Geometry
 
 
 @dataclass(slots=True, frozen=True)

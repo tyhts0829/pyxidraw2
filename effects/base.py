@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
+
 
 class BaseEffect(ABC):
     """キャッシュ機能を内蔵した、すべてのエフェクトのベースクラスです。"""
@@ -14,41 +16,46 @@ class BaseEffect(ABC):
         self._cache_enabled = True
     
     @abstractmethod
-    def apply(self, vertices_list: list[np.ndarray], **params: Any) -> list[np.ndarray]:
-        """頂点配列のリストにエフェクトを適用します。
+    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
+        """Geometryにエフェクトを適用します。
         
         Args:
-            vertices_list: 変換する頂点配列のリスト
+            geometry: 変換するGeometryオブジェクト
             **params: エフェクト固有のパラメータ
             
         Returns:
-            変換された頂点配列のリスト
+            変換されたGeometryオブジェクト
         """
         pass
     
-    def __call__(self, vertices_list: list[np.ndarray], **params: Any) -> list[np.ndarray]:
+    def __call__(self, geometry: Geometry, **params: Any) -> Geometry:
         """自動キャッシュ機能でエフェクトを適用します。"""
         if self._cache_enabled:
             # Convert to hashable format
-            hashable_vertices = self._vertices_to_hashable(vertices_list)
+            hashable_geometry = self._geometry_to_hashable(geometry)
             hashable_params = self._params_to_hashable(params)
-            return self._cached_apply(hashable_vertices, hashable_params)
-        return self.apply(vertices_list, **params)
+            return self._cached_apply(hashable_geometry, hashable_params)
+        return self.apply(geometry, **params)
     
     @lru_cache(maxsize=128)
-    def _cached_apply(self, hashable_vertices: tuple, hashable_params: tuple) -> list[np.ndarray]:
+    def _cached_apply(self, hashable_geometry: tuple, hashable_params: tuple) -> Geometry:
         """applyメソッドのキャッシュバージョンです。"""
-        vertices_list = self._hashable_to_vertices(hashable_vertices)
+        geometry = self._hashable_to_geometry(hashable_geometry)
         params = self._hashable_to_params(hashable_params)
-        return self.apply(vertices_list, **params)
+        return self.apply(geometry, **params)
     
-    def _vertices_to_hashable(self, vertices_list: list[np.ndarray]) -> tuple:
-        """頂点リストをハッシュ化可能な形式に変換します。"""
-        return tuple(tuple(map(tuple, v.tolist())) for v in vertices_list)
+    def _geometry_to_hashable(self, geometry: Geometry) -> tuple:
+        """Geometryをハッシュ化可能な形式に変換します。"""
+        coords_tuple = tuple(map(tuple, geometry.coords.tolist()))
+        offsets_tuple = tuple(geometry.offsets.tolist())
+        return (coords_tuple, offsets_tuple)
     
-    def _hashable_to_vertices(self, hashable: tuple) -> list[np.ndarray]:
-        """ハッシュ化可能な形式を頂点リストに戻します。"""
-        return [np.array(v, dtype=np.float32) for v in hashable]
+    def _hashable_to_geometry(self, hashable: tuple) -> Geometry:
+        """ハッシュ化可能な形式をGeometryに戻します。"""
+        coords_tuple, offsets_tuple = hashable
+        coords = np.array(coords_tuple, dtype=np.float32)
+        offsets = np.array(offsets_tuple, dtype=np.int32)
+        return Geometry(coords, offsets)
     
     def _params_to_hashable(self, params: dict[str, Any]) -> tuple:
         """パラメータをハッシュ化可能な形式に変換します。"""
