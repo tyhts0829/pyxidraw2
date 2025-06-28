@@ -148,8 +148,6 @@ def translation(
 #     return effect(vertices_list, dash_length=dash_length, gap_length=gap_length, **params)
 
 
-
-
 def subdivision(geometry: Geometry, n_divisions: float = 0.5, **params: Any) -> Geometry:
     """中間点を追加して線を細分化します。
 
@@ -431,9 +429,7 @@ def noise(
     return effect.apply_to_geometry(geometry, intensity=intensity, frequency=frequency, t=time, **params)
 
 
-def buffer(
-    geometry: Geometry, distance: float = 0.5, join_style: float = 0.5, **params: Any
-) -> Geometry:
+def buffer(geometry: Geometry, distance: float = 0.5, join_style: float = 0.5, **params: Any) -> Geometry:
     """パスの周りにバッファ/オフセットを作成します。
 
     Args:

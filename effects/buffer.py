@@ -66,15 +66,19 @@ class Buffer(BaseEffect):
                 # データ型を確実にfloat32に変換
                 vertices = vertices.astype(np.float32)
                 filtered_vertices_list.append(vertices)
-        
+
         # 有効な頂点がない場合は元のgeometryを返す
         if not filtered_vertices_list:
             return geometry
-            
+
         return Geometry.from_lines(filtered_vertices_list)
 
     def _buffer(
-        self, vertices_list: list[np.ndarray], distance: float, join_style: str, resolution: int
+        self,
+        vertices_list: list[np.ndarray],
+        distance: float,
+        join_style: str,
+        resolution: int,
     ) -> list[np.ndarray]:
         """Shapelyを使用してバッファー処理を実行します。"""
         if distance == 0:
@@ -95,7 +99,7 @@ class Buffer(BaseEffect):
             line = LineString(vertices_on_xy[:, :2])
 
             # バッファー処理
-            buffered_line = line.buffer(distance, join_style="round", resolution=resolution)
+            buffered_line = line.buffer(distance, join_style=join_style, resolution=resolution)  # type: ignore
 
             if buffered_line.is_empty:
                 continue
@@ -170,9 +174,9 @@ class Buffer(BaseEffect):
         join_styleが0.0-1.0の値の場合、0.0〜0.33なら"round"、0.33〜0.67なら"mitre"、0.67〜1.0なら"bevel"
         """
         if 0.0 <= join_style < 0.33:
-            return "round"
-        elif 0.33 <= join_style < 0.67:
             return "mitre"
+        elif 0.33 <= join_style < 0.67:
+            return "round"
         elif 0.67 <= join_style <= 1.0:
             return "bevel"
         else:

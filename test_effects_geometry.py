@@ -19,15 +19,15 @@ from util.constants import CANVAS_SIZES
 def draw(t, cc) -> Geometry:
     sph = polyhedron(12).transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[1], cc[2], cc[3]))
     sph = buffer(sph, distance=cc[4])
-    # sph = filling(sph, density=0.5)
-    # sph = subdivision(sph, n_divisions=0.5)
-    # sph = noise(sph, intensity=0.5)
+    sph = filling(sph, density=cc[5])
+    sph = subdivision(sph, n_divisions=cc[6])
+    sph = noise(sph, intensity=cc[7])
     return sph
 
 
 if __name__ == "__main__":
     arc.start(midi=False)  # MIDIを無効化してテスト
-    run_sketch(draw, canvas_size=CANVAS_SIZES["SQUARE_200"], render_scale=6, background=(1, 1, 1, 1))
+    run_sketch(draw, canvas_size=CANVAS_SIZES["SQUARE_200"], render_scale=8, background=(1, 1, 1, 1))
     arc.stop()
 
 """
