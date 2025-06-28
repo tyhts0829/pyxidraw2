@@ -32,6 +32,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from benchmarks.benchmark_result_manager import BenchmarkResultManager
 from benchmarks.benchmark_visualizer import BenchmarkVisualizer
 from engine.core.geometry import Geometry
+import inspect
+import importlib
 
 # Type aliases
 BenchmarkResult = Dict[str, Any]
@@ -309,6 +311,50 @@ class GeometryEffectBenchmark:
         formatted_results = self._format_results_for_manager(results)
         return self.result_manager.save_results(formatted_results)
 
+    def _check_njit_usage(self, effect_name: str) -> bool:
+        """エフェクトでnjitが使用されているかを検出"""
+        try:
+            # 各エフェクトに対応するモジュールを検査
+            effect_modules = {
+                "noise": "effects.noise",
+                "transform": "effects.transform",
+                "rotate": "effects.rotation",
+                "scale": "effects.scaling", 
+                "translate": "effects.translation"
+            }
+            
+            module_name = effect_modules.get(effect_name)
+            if module_name:
+                try:
+                    effect_module = importlib.import_module(module_name)
+                    
+                    # モジュール内でnjitデコレータが使用されているかチェック
+                    module_source = inspect.getsource(effect_module)
+                    if "@njit" in module_source or "from numba import njit" in module_source:
+                        return True
+                        
+                    # 関数レベルでもチェック
+                    for name, obj in inspect.getmembers(effect_module):
+                        if inspect.isfunction(obj):
+                            # numbaでラップされた関数を検出
+                            if hasattr(obj, '__wrapped__') or hasattr(obj, 'py_func'):
+                                return True
+                            # ソースコードからnjitデコレータを検出
+                            try:
+                                func_source = inspect.getsource(obj)
+                                if "@njit" in func_source:
+                                    return True
+                            except (OSError, TypeError):
+                                continue
+                except ImportError:
+                    # モジュールが見つからない場合は False
+                    return False
+                            
+            return False
+        except Exception as e:
+            print(f"Debug: njit detection error for {effect_name}: {e}")
+            return False
+
     def _format_results_for_manager(self, results: Dict[str, Dict]) -> Dict[str, Dict[str, Any]]:
         """GeometryエフェクトベンチマークのresultsをBenchmarkResultManager形式に変換"""
         formatted = {}
@@ -316,7 +362,7 @@ class GeometryEffectBenchmark:
         for effect_name, effect_data in results.items():
             # Calculate overall averages across all variations and sizes
             all_times = []
-            has_njit = False  # Geometry effects don't use njit currently
+            has_njit = self._check_njit_usage(effect_name)
 
             for var_data in effect_data["variations"].values():
                 if var_data["success"]:
