@@ -4,47 +4,55 @@ from typing import Any
 
 import numpy as np
 
+from engine.core.geometry import Geometry
+
 from .base import BaseEffect
 
 
 class Buffer(BaseEffect):
     """平行線を作成してパスをバッファー/オフセットします。"""
     
-    def apply(self, vertices_list: list[np.ndarray], **params: Any) -> list[np.ndarray]:
+    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
         """バッファーエフェクトを適用します。
         
         入力パスから指定された距離に平行線を作成します。
         
         Args:
-            vertices_list: 入力頂点配列
-            distance: バッファー距離（正の値=外向き、負の値=内向き） - デフォルト 0.1
+            geometry: 入力Geometryオブジェクト
+            distance: バッファー距離（正の値=外向き、負の値=内向き） - デフォルト 0.5 (0.0-1.0レンジで10倍される)
             join_style: 角の接合スタイル（"round", "miter", "bevel"） - デフォルト "round"
             **params: 追加パラメータ
             
         Returns:
-            元のパスとオフセットパスを含むバッファー化された頂点配列
+            元のパスとオフセットパスを含むバッファー化されたGeometry
         """
-        distance = params.get('distance', 0.1)
+        distance = params.get('distance', 0.5)
         join_style = params.get('join_style', 'round')
         
-        if distance == 0:
-            return vertices_list.copy()
+        # 0.0-1.0 レンジを実際の距離値にスケール（10倍）
+        actual_distance = distance * 10.0
+        
+        if actual_distance == 0:
+            return geometry
         
         buffered_results = []
         
-        for vertices in vertices_list:
+        # 既存の線を取得
+        coords, offsets = geometry.as_arrays()
+        for i in range(len(offsets) - 1):
+            vertices = coords[offsets[i]:offsets[i+1]]
             if len(vertices) < 2:
                 buffered_results.append(vertices)
                 continue
             
-            # Add original path
+            # 元のパスを追加
             buffered_results.append(vertices)
             
-            # Create offset paths
-            offset_paths = self._create_offset_paths(vertices, distance, join_style)
+            # オフセットパスを作成
+            offset_paths = self._create_offset_paths(vertices, actual_distance, join_style)
             buffered_results.extend(offset_paths)
         
-        return buffered_results
+        return Geometry.from_lines(buffered_results)
     
     def _create_offset_paths(self, vertices: np.ndarray, distance: float, join_style: str) -> list[np.ndarray]:
         """入力パスの両側にオフセットパスを作成します。"""

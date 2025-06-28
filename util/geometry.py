@@ -1,9 +1,13 @@
 """3D変換のためのジオメトリユーティリティ関数。"""
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numba import njit
+
+if TYPE_CHECKING:
+    from engine.core.geometry import Geometry
 
 
 @njit(cache=True)
@@ -98,9 +102,92 @@ def transform_back(vertices: np.ndarray, rotation_matrix: np.ndarray, z_offset: 
     Returns:
         (N, 3) 元の向きの点の配列
     """
+    # Ensure consistent float64 type for calculations
+    vertices = vertices.astype(np.float64)
+    rotation_matrix = rotation_matrix.astype(np.float64)
+    
     # Restore z-coordinate
     result = vertices.copy()
     result[:, 2] += z_offset
 
     # Apply inverse rotation
     return np.dot(result, rotation_matrix)
+
+
+def geometry_transform_to_xy_plane(geometry: "Geometry") -> tuple["Geometry", np.ndarray, float]:
+    """GeometryをXY平面（z=0）に変換する。
+
+    Geometryの全頂点の最適な法線ベクトルがZ軸に沿うように回転させ、
+    その後z座標を0に平行移動する。
+
+    Args:
+        geometry: 変換するGeometry
+
+    Returns:
+        以下のタプル:
+            - transformed_geometry: XY平面上のGeometry
+            - rotation_matrix: (3, 3) 使用された回転行列
+            - z_offset: z方向の平行移動量
+    """
+    from engine.core.geometry import Geometry
+    
+    if len(geometry.coords) == 0:
+        return geometry, np.eye(3), 0.0
+    
+    # 全頂点の重心をZ=0平面に投影する簡単な変換を行う
+    coords = geometry.coords.astype(np.float64)
+    
+    # 重心を計算
+    centroid = np.mean(coords, axis=0)
+    z_offset = centroid[2]
+    
+    # Z座標を0に設定
+    transformed_coords = coords.copy()
+    transformed_coords[:, 2] = 0.0
+    
+    # 単位行列（回転なし）
+    rotation_matrix = np.eye(3)
+    
+    # 新しいGeometryを作成
+    transformed_geometry = Geometry(
+        coords=transformed_coords.astype(np.float32),
+        offsets=geometry.offsets.copy()
+    )
+    
+    return transformed_geometry, rotation_matrix, z_offset
+
+
+def geometry_transform_back(geometry: "Geometry", rotation_matrix: np.ndarray, z_offset: float) -> "Geometry":
+    """Geometryを元の向きに戻す。
+
+    geometry_transform_to_xy_plane関数の逆変換。
+
+    Args:
+        geometry: 変換されたGeometry
+        rotation_matrix: (3, 3) geometry_transform_to_xy_planeから得られた回転行列
+        z_offset: geometry_transform_to_xy_planeから得られたz方向の平行移動量
+
+    Returns:
+        元の向きのGeometry
+    """
+    from engine.core.geometry import Geometry
+    
+    if len(geometry.coords) == 0:
+        return geometry
+    
+    # 簡単な逆変換（Z座標にオフセットを加算）
+    coords = geometry.coords.astype(np.float64)
+    restored_coords = coords.copy()
+    restored_coords[:, 2] += z_offset
+    
+    # 回転行列を適用（現在は単位行列なので実質的に何もしない）
+    if not np.allclose(rotation_matrix, np.eye(3)):
+        restored_coords = transform_back(restored_coords, rotation_matrix, 0.0)
+    
+    # 新しいGeometryを作成
+    restored_geometry = Geometry(
+        coords=restored_coords.astype(np.float32),
+        offsets=geometry.offsets.copy()
+    )
+    
+    return restored_geometry

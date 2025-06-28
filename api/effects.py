@@ -431,22 +431,22 @@ def noise(
     return effect.apply_to_geometry(geometry, intensity=intensity, frequency=frequency, t=time, **params)
 
 
-# def buffer(
-#     vertices_list: list[np.ndarray], distance: float = 0.1, join_style: str = "round", **params: Any
-# ) -> list[np.ndarray]:
-#     """パスの周りにバッファ/オフセットを作成します。
+def buffer(
+    geometry: Geometry, distance: float = 0.5, join_style: str = "round", **params: Any
+) -> Geometry:
+    """パスの周りにバッファ/オフセットを作成します。
 
-#     Args:
-#         vertices_list: 入力頂点配列
-#         distance: バッファ距離（正の値 = 外方、負の値 = 内方）
-#         join_style: 角の接合スタイル ("round"、"miter"、"bevel")
-#         **params: 追加パラメータ
+    Args:
+        geometry: 入力Geometry
+        distance: バッファ距離 (0.0-1.0、内部で10倍される) - デフォルト 0.5
+        join_style: 角の接合スタイル ("round"、"miter"、"bevel")
+        **params: 追加パラメータ
 
-#     Returns:
-#         バッファされた頂点配列
-#     """
-#     effect = Buffer()
-#     return effect(vertices_list, distance=distance, join_style=join_style, **params)
+    Returns:
+        バッファされたGeometry
+    """
+    effect = Buffer()
+    return effect(geometry, distance=distance, join_style=join_style, **params)
 
 
 # 便利なパイプライン関数を作成

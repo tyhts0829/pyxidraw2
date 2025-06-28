@@ -2,9 +2,9 @@ import arc
 import numpy as np
 
 from api.effects import (
+    buffer,
     filling,
     noise,
-    rotation,
     scaling,
     subdivision,
     transform,
@@ -17,10 +17,11 @@ from util.constants import CANVAS_SIZES
 
 
 def draw(t, cc) -> Geometry:
-    sph = polyhedron().transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[2], cc[3], 0))
-    sph = filling(sph, density=cc[4])
-    sph = subdivision(sph, n_divisions=cc[4])
-    sph = noise(sph, intensity=cc[4])
+    sph = polygon().transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[2], cc[3], 0))
+    sph = buffer(sph, distance=cc[4])
+    # sph = filling(sph, density=cc[4])
+    # sph = subdivision(sph, n_divisions=cc[4])
+    # sph = noise(sph, intensity=cc[4])
     return sph
 
 
