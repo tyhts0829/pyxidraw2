@@ -449,6 +449,41 @@ def buffer(geometry: Geometry, distance: float = 0.5, join_style: float = 0.5, *
     return effect(geometry, distance=distance, join_style=join_style, **params)
 
 
+def array(
+    geometry: Geometry,
+    n_duplicates: float = 0.5,
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    rotate: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    scale: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    **params: Any,
+) -> Geometry:
+    """入力のコピーを配列状に生成します。
+
+    Args:
+        geometry: 入力Geometry
+        n_duplicates: 複製数の係数（0.0-1.0、最大10個まで）- デフォルト 0.5
+        offset: 各複製間のオフセット（x, y, z）- デフォルト (0.0, 0.0, 0.0)
+        rotate: 各複製における回転増分（0.0-1.0、0.5が中立）- デフォルト (0.5, 0.5, 0.5)
+        scale: 各複製におけるスケール係数（0.0-1.0、0.5が中立）- デフォルト (0.5, 0.5, 0.5)
+        center: 配列の中心点（x, y, z）- デフォルト (0.0, 0.0, 0.0)
+        **params: 追加パラメータ
+
+    Returns:
+        配列化されたGeometry
+    """
+    effect = Array()
+    return effect(
+        geometry,
+        n_duplicates=n_duplicates,
+        offset=offset,
+        rotate=rotate,
+        scale=scale,
+        center=center,
+        **params,
+    )
+
+
 # 便利なパイプライン関数を作成
 def pipeline(*effects: Any) -> EffectPipeline:
     """エフェクトパイプラインを作成します。
