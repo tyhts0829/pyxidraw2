@@ -7,7 +7,6 @@ Geometry対応シェイプモジュールベンチマークスイート
 実行時間の測定、キャッシュ使用状況の確認、失敗の追跡を行います。
 """
 
-import json
 import os
 import sys
 import time
@@ -15,21 +14,126 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+import inspect
+import importlib
+
+# Set seaborn theme
+sns.set_theme()
+# 日本語フォント設定
+japanize_matplotlib.japanize()
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.core.geometry import Geometry
 from api import shapes
+from benchmarks.benchmark_result_manager import BenchmarkResultManager
+from benchmarks.benchmark_visualizer import BenchmarkVisualizer
 
 # Type aliases
 BenchmarkResult = Dict[str, Any]
 TimingData = Dict[str, List[float]]
 ShapeFunction = Callable[..., Geometry]
+
+
+class GeometryShapeVisualizer(BenchmarkVisualizer):
+    """Geometry shapes専用のベンチマーク可視化クラス（ミリ秒表示、対数スケール対応）"""
+
+    def _extract_visualization_data(self, results: Dict[str, BenchmarkResult]) -> Dict[str, List[Any]]:
+        """可視化用のデータを抽出（ミリ秒単位）"""
+        modules: List[str] = []
+        small_times: List[float] = []
+        medium_times: List[float] = []
+        large_times: List[float] = []
+        has_njit: List[str] = []
+        success_status: List[str] = []
+
+        for module, data in sorted(results.items()):
+            modules.append(module)
+
+            if data["success"]:
+                # For shapes, we only have one timing measurement per shape
+                time_ms = data["average_times"].get("default", 0) * 1000 if data["average_times"] else 0
+                # Use the same time for all three categories
+                small_times.append(time_ms if time_ms > 0 else 0.001)
+                medium_times.append(time_ms if time_ms > 0 else 0.001)
+                large_times.append(time_ms if time_ms > 0 else 0.001)
+                success_status.append("◯")
+            else:
+                small_times.append(0.001)
+                medium_times.append(0.001)
+                large_times.append(0.001)
+                success_status.append("×")
+
+            njit_funcs = data.get("njit_functions", {})
+            has_njit.append("◆" if any(njit_funcs.values()) else "◇")
+
+        return {
+            "modules": modules,
+            "small_times": small_times,
+            "medium_times": medium_times,
+            "large_times": large_times,
+            "has_njit": has_njit,
+            "success_status": success_status,
+        }
+
+    def _create_benchmark_charts(self, viz_data: Dict[str, List[Any]]) -> Tuple[Figure, List[Axes]]:
+        """ベンチマークチャートを作成（対数スケール、ミリ秒表示）"""
+        modules = viz_data["modules"]
+        # For shapes, we'll show all three columns but they'll have the same data
+        fig, axes = plt.subplots(1, 3, figsize=(18, max(8, len(modules) * 0.4)))
+        y_pos = np.arange(len(modules))
+
+        # Chart configurations
+        chart_configs = [
+            ("small_times", "lightblue", "Simple Shapes"),
+            ("medium_times", "lightgreen", "Medium Complexity"), 
+            ("large_times", "lightcoral", "Complex Shapes"),
+        ]
+
+        # Create charts
+        for ax, (data_key, color, title) in zip(axes, chart_configs):
+            bars = ax.barh(y_pos, viz_data[data_key], color=color)
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(
+                [
+                    f"{m} {s} {n}"
+                    for m, s, n in zip(viz_data["modules"], viz_data["success_status"], viz_data["has_njit"])
+                ]
+            )
+            ax.set_xlabel("Time (ms)")
+            ax.set_title(title)
+            
+            # Set log scale for x-axis
+            ax.set_xscale("log")
+            
+            # Add vertical grid lines for better comparison
+            ax.grid(True, which="major", axis="x", alpha=0.6, linestyle="-", linewidth=0.8)
+            ax.grid(True, which="minor", axis="x", alpha=0.3, linestyle=":", linewidth=0.5)
+            
+            # Add horizontal grid lines as well for better readability
+            ax.grid(True, which="major", axis="y", alpha=0.3, linestyle="-", linewidth=0.5)
+
+            # Add value labels with 3 decimal places
+            for bar in bars:
+                width = bar.get_width()
+                if width > 0:
+                    ax.text(
+                        width, bar.get_y() + bar.get_height() / 2, f"{width:.3f}", ha="left", va="center", fontsize=8
+                    )
+
+        plt.suptitle(f'Geometry Shape Benchmarks - {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.1)
+        fig.text(0.5, 0.02, "◯ = Success, × = Failed, ◆ = Uses cache, ◇ = No cache", ha="center", fontsize=10)
+
+        return fig, axes
 
 
 class GeometryShapeBenchmark:
@@ -44,6 +148,17 @@ class GeometryShapeBenchmark:
         # Benchmark parameters
         self.warmup_runs = warmup_runs
         self.benchmark_runs = benchmark_runs
+        
+        # Initialize result manager and custom visualizer for shapes
+        # Create a custom result manager that uses 'shapes' directory instead of 'effects'
+        class ShapeResultManager(BenchmarkResultManager):
+            def __init__(self, output_dir: str):
+                super().__init__(output_dir)
+                self.effects_dir = self.output_dir / "shapes"
+                self.effects_dir.mkdir(exist_ok=True)
+        
+        self.result_manager = ShapeResultManager(str(self.output_dir))
+        self.visualizer = GeometryShapeVisualizer(str(self.output_dir))
 
     def get_shape_functions(self) -> Dict[str, List[Tuple[str, Callable, Dict[str, Any]]]]:
         """ベンチマーク対象のGeometry対応シェイプ関数を取得"""
@@ -192,149 +307,93 @@ class GeometryShapeBenchmark:
 
         return all_results
 
+    def _check_cache_usage(self, shape_name: str) -> bool:
+        """シェイプでlru_cacheが使用されているかを検出"""
+        try:
+            # shapes モジュールを検査
+            shapes_module = importlib.import_module("api.shapes")
+            
+            # 特定のshape関数を取得
+            if hasattr(shapes_module, shape_name):
+                shape_func = getattr(shapes_module, shape_name)
+                
+                # 関数のソースコードを検査
+                try:
+                    func_source = inspect.getsource(shape_func)
+                    if "@lru_cache" in func_source or "lru_cache" in func_source:
+                        return True
+                except (OSError, TypeError):
+                    pass
+                    
+            # shapes モジュール全体のソースも検査
+            try:
+                module_source = inspect.getsource(shapes_module)
+                if "@lru_cache" in module_source or "from functools import lru_cache" in module_source:
+                    return True
+            except (OSError, TypeError):
+                pass
+                
+            return False
+        except Exception:
+            return False
+    
     def save_results(self, results: Dict[str, Dict]) -> str:
-        """タイムスタンプ付きでベンチマーク結果を保存"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = self.shapes_dir / f"benchmark_{timestamp}.json"
-
-        with open(filename, "w") as f:
-            json.dump(results, f, indent=2)
-
-        # Also save as latest
-        latest_file = self.shapes_dir / "latest.json"
-        with open(latest_file, "w") as f:
-            json.dump(results, f, indent=2)
-
-        return str(filename)
+        """ベンチマーク結果を保存"""
+        # Convert to the expected format for BenchmarkResultManager
+        formatted_results = self._format_results_for_manager(results)
+        return self.result_manager.save_results(formatted_results)
+    
+    def _format_results_for_manager(self, results: Dict[str, Dict]) -> Dict[str, Dict[str, Any]]:
+        """GeometryシェイプベンチマークのresultsをBenchmarkResultManager形式に変換"""
+        formatted = {}
+        
+        for shape_name, shape_data in results.items():
+            # Calculate overall average across all variations
+            all_times = []
+            has_cache = self._check_cache_usage(shape_name)
+            
+            for var_data in shape_data["variations"].values():
+                if var_data["success"]:
+                    all_times.append(var_data["average_time"])
+            
+            if all_times:
+                avg_time = np.mean(all_times)
+                formatted[shape_name] = {
+                    "module": shape_name,
+                    "timestamp": shape_data["timestamp"],
+                    "success": True,
+                    "error": None,
+                    "cache_functions": {"apply": has_cache},
+                    "timings": {"default": [avg_time]},
+                    "average_times": {"default": avg_time},
+                }
+            else:
+                formatted[shape_name] = {
+                    "module": shape_name,
+                    "timestamp": shape_data["timestamp"],
+                    "success": False,
+                    "error": "No successful variations",
+                    "cache_functions": {"apply": has_cache},
+                    "timings": {},
+                    "average_times": {},
+                }
+        
+        return formatted
 
     def visualize_results(self, results: BenchmarkResult, save_path: Optional[str] = None) -> None:
         """ベンチマーク結果の可視化"""
-        # 結果を処理時間でソート（最も遅いものから）
-        sorted_shapes = []
-        for shape_name, shape_data in results.items():
-            avg_times = [v["average_time"] for v in shape_data["variations"].values() if v["success"]]
-            if avg_times:
-                sorted_shapes.append((shape_name, np.mean(avg_times)))
-        sorted_shapes.sort(key=lambda x: x[1], reverse=True)
+        # Convert to the expected format for BenchmarkVisualizer
+        formatted_results = self._format_results_for_manager(results)
+        self.visualizer.visualize_results(formatted_results, save_path)
         
-        # 上位15個の形状を選択
-        top_shapes = [name for name, _ in sorted_shapes[:15]]
-        
-        # Create figure
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 10))
-        
-        # Chart 1: Top 15 shapes by average time
-        self._plot_top_shapes(ax1, results, top_shapes)
-        
-        # Chart 2: Time vs vertex count scatter plot
-        self._plot_time_vs_vertices(ax2, results)
-
-        plt.suptitle(f'Geometry Shape Benchmarks - {datetime.now().strftime("%Y-%m-%d %H:%M")}', fontsize=16)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-        # Save chart
-        self._save_chart(fig, save_path)
-
-    def _plot_top_shapes(self, ax: Axes, results: Dict[str, Any], top_shapes: List[str]) -> None:
-        """上位シェイプの実行時間をプロット"""
-        shapes = []
-        times = []
-        colors = []
-        
-        for shape_name in top_shapes:
-            if shape_name in results:
-                shape_data = results[shape_name]
-                for var_name, var_data in shape_data["variations"].items():
-                    if var_data["success"]:
-                        shapes.append(f"{shape_name}\n{var_name}")
-                        times.append(var_data["average_time"] * 1000)
-                        # Color by shape type
-                        if shape_name in ["sphere", "cylinder", "cone", "torus", "capsule"]:
-                            colors.append("lightcoral")  # 3D shapes
-                        elif shape_name == "polyhedron":
-                            colors.append("lightgreen")  # Polyhedra
-                        elif shape_name in ["lissajous", "attractor"]:
-                            colors.append("lightsalmon")  # Parametric
-                        elif shape_name in ["text", "asemic_glyph"]:
-                            colors.append("lightgoldenrodyellow")  # Text
-                        else:
-                            colors.append("lightblue")  # 2D shapes
-        
-        y_pos = np.arange(len(shapes))
-        bars = ax.barh(y_pos, times, color=colors)
-        
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(shapes, fontsize=8)
-        ax.set_xlabel('Time (ms)')
-        ax.set_title('Top 15 Shapes by Execution Time')
-        ax.grid(axis='x', alpha=0.3)
-        
-        # Add value labels
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(width, bar.get_y() + bar.get_height()/2,
-                   f'{width:.2f}',
-                   ha='left', va='center', fontsize=7)
-
-    def _plot_time_vs_vertices(self, ax: Axes, results: Dict[str, Any]) -> None:
-        """実行時間と頂点数の相関をプロット"""
-        vertex_counts = []
-        times = []
-        labels = []
-        colors = []
-        
-        for shape_name, shape_data in results.items():
-            for var_name, var_data in shape_data["variations"].items():
-                if var_data["success"]:
-                    vertex_counts.append(var_data["vertex_count"])
-                    times.append(var_data["average_time"] * 1000)
-                    labels.append(f"{shape_name}_{var_name}")
-                    
-                    # Color by shape type
-                    if shape_name in ["sphere", "cylinder", "cone", "torus", "capsule"]:
-                        colors.append("red")  # 3D shapes
-                    elif shape_name == "polyhedron":
-                        colors.append("green")  # Polyhedra
-                    elif shape_name in ["lissajous", "attractor"]:
-                        colors.append("orange")  # Parametric
-                    elif shape_name in ["text", "asemic_glyph"]:
-                        colors.append("purple")  # Text
-                    else:
-                        colors.append("blue")  # 2D shapes
-        
-        ax.scatter(vertex_counts, times, c=colors, alpha=0.6, s=50)
-        ax.set_xlabel('Vertex Count')
-        ax.set_ylabel('Time (ms)')
-        ax.set_title('Execution Time vs Vertex Count')
-        ax.set_xscale('log')
-        ax.set_yscale('log')
-        ax.grid(True, alpha=0.3)
-        
-        # Add legend
-        from matplotlib.patches import Patch
-        legend_elements = [
-            Patch(facecolor='blue', label='2D Shapes'),
-            Patch(facecolor='red', label='3D Shapes'),
-            Patch(facecolor='green', label='Polyhedra'),
-            Patch(facecolor='orange', label='Parametric'),
-            Patch(facecolor='purple', label='Text')
-        ]
-        ax.legend(handles=legend_elements, loc='upper left')
-
-    def _save_chart(self, fig: Figure, save_path: Optional[str] = None) -> None:
-        """チャートを保存"""
-        if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    def compare_historical(self, num_recent: int = 5) -> None:
+        """最近のベンチマーク結果を比較"""
+        historical_data = self.result_manager.get_historical_results(num_recent)
+        if historical_data:
+            self.visualizer.compare_historical(historical_data, num_recent)
         else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_file = self.shapes_dir / f"benchmark_chart_{timestamp}.png"
-            plt.savefig(save_file, dpi=150, bbox_inches="tight")
+            print("Not enough historical data for comparison")
 
-            # Also save as latest
-            latest_chart = self.shapes_dir / "latest_chart.png"
-            plt.savefig(latest_chart, dpi=150, bbox_inches="tight")
-
-        plt.close()
 
     def print_summary(self, results: Dict[str, Dict[str, Any]]) -> None:
         """結果のサマリーを表示"""
@@ -399,6 +458,10 @@ def main() -> None:
     # Visualize results
     benchmark.visualize_results(results)
     print(f"Visualization saved to: {benchmark.shapes_dir / 'latest_chart.png'}")
+    
+    # Generate historical comparison
+    print("\nGenerating historical comparison...")
+    benchmark.compare_historical()
 
     # Print summary
     benchmark.print_summary(results)
