@@ -18,12 +18,15 @@ from util.constants import CANVAS_SIZES
 
 
 def draw(t, cc) -> Geometry:
-    sph = polyhedron(12).transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[1], cc[2], cc[3]))
-    sph = array(sph, n_duplicates=cc[4], scale=(cc[5], cc[5], cc[5]), center=(100, 100, 0))
+    sph = sphere(subdivisions=cc[1]).transform(
+        center=(100, 100, 0),
+        scale=(100, 100, 100),
+        rotate=(cc[2], cc[2], cc[2]),
+    )
     # sph = buffer(sph, distance=cc[4])
     # sph = filling(sph, density=cc[5])
-    # sph = subdivision(sph, n_divisions=cc[6])
-    sph = noise(sph, intensity=cc[5])
+    # sph = subdivision(sph, n_divisions=cc[3])
+    sph = noise(sph, intensity=cc[4])
     return sph
 
 
