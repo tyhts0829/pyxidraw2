@@ -35,8 +35,24 @@ class Geometry:
         """座標配列に任意の関数 fn: (N,3)->(N,3) を適用"""
         return Geometry(fn(self.coords), self.offsets)
 
-    def as_arrays(self, copy=False):
-        return (self.coords.copy() if copy else self.coords, self.offsets.copy() if copy else self.offsets)
+    def as_arrays(self, *, copy: bool = False) -> tuple[np.ndarray, np.ndarray]:
+        """coords, offsets を返す。copy=True ならディープコピー。
+        
+        Args:
+            copy: True なら独立したコピーを返す。False なら zero-copy view を返す。
+            
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (coords, offsets) のタプル
+            
+        Note:
+            デフォルトの copy=False では、元の Geometry と同じメモリを共有する
+            ビューを返すため、O(1) で取得でき、巨大データでも高速です。
+            取得したビューを変更すると元の Geometry も変更されます。
+        """
+        if copy:
+            return self.coords.copy(), self.offsets.copy()
+        # zero-copy view を返す
+        return self.coords, self.offsets
 
     def __add__(self, other: "Geometry"):
         off_other = other.offsets + len(self.coords)
@@ -204,9 +220,15 @@ class Geometry:
         """サイズ指定（scale_uniform のエイリアス）"""
         return self.scale_uniform(factor)
 
-    def spin(self, angle: float) -> "Geometry":
-        """Z軸回転（rotate_z のエイリアス）"""
-        return self.rotate_z(angle)
+    def spin(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> "Geometry":
+        """動的に計算された中心点で3軸回転（自分の重心を中心に回転）"""
+        def _spin_effect(geom, **kwargs):
+            # 現在の重心を計算
+            current_center = geom.coords.mean(axis=0)
+            from api.effects import rotation
+            return rotation(geom, center=tuple(current_center), rotate=(kwargs["x"], kwargs["y"], kwargs["z"]))
+        
+        return self._apply_cached_effect("spin", _spin_effect, x=x, y=y, z=z)
 
     # ── エフェクトメソッド（api/effectsの有効エフェクト） ───────────────────
     def subdivision(self, n_divisions: float = 0.5) -> "Geometry":
