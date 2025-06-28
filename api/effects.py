@@ -432,14 +432,14 @@ def noise(
 
 
 def buffer(
-    geometry: Geometry, distance: float = 0.5, join_style: str = "round", **params: Any
+    geometry: Geometry, distance: float = 0.5, join_style: float = 0.5, **params: Any
 ) -> Geometry:
     """パスの周りにバッファ/オフセットを作成します。
 
     Args:
         geometry: 入力Geometry
         distance: バッファ距離 (0.0-1.0、内部で10倍される) - デフォルト 0.5
-        join_style: 角の接合スタイル ("round"、"miter"、"bevel")
+        join_style: 角の接合スタイル (0.0-1.0でround/mitre/bevelを選択) - デフォルト 0.5
         **params: 追加パラメータ
 
     Returns:

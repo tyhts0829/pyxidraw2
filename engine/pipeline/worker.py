@@ -30,6 +30,10 @@ class _WorkerProcess(mp.Process):
                 geometry = self.draw_callback(task.t, task.cc_state)
                 self.result_q.put(RenderPacket(geometry, task.frame_id))
             except Exception as e:  # 例外を親へ
+                # デバッグ用：より詳細なエラー情報を追加
+                import traceback
+                error_msg = f"Worker error in draw_callback: {e}\nTraceback: {traceback.format_exc()}"
+                print(error_msg)
                 self.result_q.put(e)
 
 
