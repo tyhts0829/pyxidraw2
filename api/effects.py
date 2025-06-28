@@ -148,27 +148,6 @@ def translation(
 #     return effect(vertices_list, dash_length=dash_length, gap_length=gap_length, **params)
 
 
-def noise(
-    vertices_list: list[np.ndarray],
-    intensity: float = 0.5,
-    frequency: tuple | float = (0.5, 0.5, 0.5),
-    t: float = 0.0,
-    **params: Any,
-) -> list[np.ndarray]:
-    """頂点にPerlinノイズを追加します。
-
-    Args:
-        vertices_list: 入力頂点配列
-        intensity: ノイズの強度
-        frequency: ノイズの周波数（tuple or float）
-        t: 時間パラメータ
-        **params: 追加パラメータ
-
-    Returns:
-        Perlinノイズを加えた頂点配列
-    """
-    effect = Noise()
-    return effect.apply(vertices_list, intensity=intensity, frequency=frequency, t=t)
 
 
 # def subdivision(vertices_list: list[np.ndarray], n_divisions: float = 0.0, **params: Any) -> list[np.ndarray]:
@@ -427,6 +406,29 @@ def transform(
     """
     effect = Transform()
     return effect(geometry, center=center, scale=scale, rotate=rotate, **params)
+
+
+def noise(
+    geometry: Geometry,
+    intensity: float = 0.5,
+    frequency: tuple[float, float, float] | float = (0.5, 0.5, 0.5),
+    time: float = 0.0,
+    **params: Any,
+) -> Geometry:
+    """GeometryにPerlinノイズを適用します。
+
+    Args:
+        geometry: 入力Geometry
+        intensity: ノイズの強度 (0.0-1.0)
+        frequency: ノイズの周波数（tuple or float）
+        time: 時間パラメータ
+        **params: 追加パラメータ
+
+    Returns:
+        ノイズが適用されたGeometry
+    """
+    effect = Noise()
+    return effect.apply_to_geometry(geometry, intensity=intensity, frequency=frequency, t=time, **params)
 
 
 # def buffer(

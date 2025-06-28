@@ -1,261 +1,198 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-シェイプモジュールベンチマークスイート
+Geometry対応シェイプモジュールベンチマークスイート
 
-このスクリプトは、shapes/ディレクトリ内のすべてのシェイプモジュールをベンチマークし、
+このスクリプトは、Geometry対応のshapes APIをベンチマークし、
 実行時間の測定、キャッシュ使用状況の確認、失敗の追跡を行います。
-結果はタイムスタンプ付きで保存され、履歴比較が可能です。
 """
 
-import importlib
-import importlib.util
-import inspect
 import json
 import os
 import sys
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from numpy.typing import NDArray
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from engine.core.geometry import Geometry
+from api import shapes
+
 # Type aliases
-Vertices = NDArray[np.float32]  # Single array of shape (N, 3)
-VerticesList = List[NDArray[np.float32]]  # List of vertex arrays
 BenchmarkResult = Dict[str, Any]
 TimingData = Dict[str, List[float]]
-ShapeFunction = Callable[..., VerticesList]
+ShapeFunction = Callable[..., Geometry]
 
 
-class ShapeBenchmark:
-    """シェイプモジュール用ベンチマークシステム"""
+class GeometryShapeBenchmark:
+    """Geometry対応シェイプ用ベンチマークシステム"""
 
     def __init__(self, output_dir: str = "benchmark_results", warmup_runs: int = 5, benchmark_runs: int = 20) -> None:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        self.shapes_dir = self.output_dir / "shapes"
+        self.shapes_dir = self.output_dir / "geometry_shapes"
         self.shapes_dir.mkdir(exist_ok=True)
 
         # Benchmark parameters
         self.warmup_runs = warmup_runs
         self.benchmark_runs = benchmark_runs
 
-        # Initialize test parameters lazily
-        self._test_params: Optional[Dict[str, List[Dict[str, Any]]]] = None
-
-    @property
-    def test_params(self) -> Dict[str, List[Dict[str, Any]]]:
-        """テストパラメータの遅延初期化"""
-        if self._test_params is None:
-            self._test_params = {
-                # Common shape parameters with different complexity levels
-                "polygon": [
-                    {"n_sides": 3},  # Triangle
-                    {"n_sides": 6},  # Hexagon
-                    {"n_sides": 20},  # High-poly
-                ],
-                "sphere": [
-                    {"rows": 10, "cols": 10},  # Low res
-                    {"rows": 20, "cols": 20},  # Medium res
-                    {"rows": 50, "cols": 50},  # High res
-                ],
-                "torus": [
-                    {"major_segments": 10, "minor_segments": 10},  # Low res
-                    {"major_segments": 20, "minor_segments": 20},  # Medium res
-                    {"major_segments": 40, "minor_segments": 40},  # High res
-                ],
-                "grid": [
-                    {"rows": 5, "cols": 5},  # Small grid
-                    {"rows": 10, "cols": 10},  # Medium grid
-                    {"rows": 20, "cols": 20},  # Large grid
-                ],
-                "lissajous": [
-                    {"a": 3, "b": 2, "samples": 100},  # Simple pattern
-                    {"a": 5, "b": 4, "samples": 200},  # Medium pattern
-                    {"a": 7, "b": 6, "samples": 500},  # Complex pattern
-                ],
-                "attractor": [
-                    {"attractor_type": "lorenz", "points": 1000},  # Low complexity
-                    {"attractor_type": "rossler", "points": 5000},  # Medium complexity
-                    {"attractor_type": "aizawa", "points": 10000},  # High complexity
-                ],
-                "capsule": [
-                    {"radius": 0.5, "height": 1.0, "segments": 16},  # Low res
-                    {"radius": 0.5, "height": 1.0, "segments": 32},  # Medium res
-                    {"radius": 0.5, "height": 1.0, "segments": 64},  # High res
-                ],
-                "asemic_glyph": [
-                    {"region": (-0.5, -0.5, 0.5, 0.5), "random_seed": 42.0},  # Default size
-                    {"region": (-1.0, -1.0, 1.0, 1.0), "random_seed": 123.0},  # Larger size
-                    {"region": (-0.25, -0.25, 0.25, 0.25), "random_seed": 456.0},  # Smaller size
-                ],
-                "cone": [
-                    {"segments": 8},   # Low res
-                    {"segments": 32},  # Medium res (default)
-                    {"segments": 128}, # High res
-                ],
-                "cylinder": [
-                    {"segments": 8},   # Low res
-                    {"segments": 32},  # Medium res (default)
-                    {"segments": 128}, # High res
-                ],
-                "polyhedron": [
-                    {"polygon_type": "tetrahedron"},  # Low complexity (6 edges)
-                    {"polygon_type": "hexahedron"},   # Medium complexity (12 edges)
-                    {"polygon_type": "icosahedron"},  # High complexity (30 edges)
-                ],
-                "text": [
-                    {"text": "A"},           # Low complexity
-                    {"text": "HELLO"},       # Medium complexity
-                    {"text": "HELLO WORLD"}, # High complexity
-                ],
-                # Default parameters for shapes without specific test params
-                "default": [
-                    {},  # Default parameters
-                    {"scale": (2, 2, 2)},  # Scaled version
-                    {"rotate": (0.5, 0.5, 0.5)},  # Rotated version
-                ],
-            }
-        return self._test_params
-
-    @staticmethod
-    def get_shape_modules() -> List[str]:
-        """ベンチマーク対象のシェイプモジュールリストを取得"""
-        shapes_path = Path("shapes")
-        excluded_files = {"__init__.py", "base.py", "factory.py"}
-
-        return sorted(
-            [
-                file.stem
-                for file in shapes_path.glob("*.py")
-                if not file.name.startswith("__") and file.name not in excluded_files
-            ]
-        )
-
-    @staticmethod
-    def check_cache_usage(module_name: str) -> Dict[str, bool]:
-        """モジュール内の関数がlru_cacheデコレータを使用しているかチェック"""
-        cache_info: Dict[str, bool] = {}
-        excluded_names = {"annotations", "np", "lru_cache", "Any", "BaseShape"}
-
-        try:
-            # Import module directly to avoid circular imports
-            spec = importlib.util.spec_from_file_location(
-                f"shapes.{module_name}", 
-                Path("shapes") / f"{module_name}.py"
-            )
-            if spec is None or spec.loader is None:
-                return cache_info
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            for name, obj in inspect.getmembers(module):
-                if name.startswith("__") or name in excluded_names:
-                    continue
-
-                # Check if it's a function with lru_cache
-                has_cache = hasattr(obj, "__wrapped__") and hasattr(obj, "cache_info")
-
-                if has_cache or inspect.isfunction(obj):
-                    cache_info[name] = has_cache
-
-        except Exception:
-            pass
-
-        return cache_info
-
-    def benchmark_shape(self, module_name: str) -> Dict[str, Any]:
-        """単一のシェイプモジュールをベンチマーク"""
-        results = {
-            "module": module_name,
-            "timestamp": datetime.now().isoformat(),
-            "success": False,
-            "error": None,
-            "cached_functions": {},
-            "timings": {},
-            "average_times": {},
-            "vertex_counts": {},
+    def get_shape_functions(self) -> Dict[str, List[Tuple[str, Callable, Dict[str, Any]]]]:
+        """ベンチマーク対象のGeometry対応シェイプ関数を取得"""
+        return {
+            # 2D基本形状
+            "polygon": [
+                ("triangle", shapes.polygon, {"n_sides": 3}),
+                ("hexagon", shapes.polygon, {"n_sides": 6}),
+                ("circle_20", shapes.polygon, {"n_sides": 20}),
+                ("circle_50", shapes.polygon, {"n_sides": 50}),
+            ],
+            "grid": [
+                ("small_5x5", shapes.grid, {"rows": 5, "cols": 5}),
+                ("medium_10x10", shapes.grid, {"rows": 10, "cols": 10}),
+                ("large_20x20", shapes.grid, {"rows": 20, "cols": 20}),
+            ],
+            # 3D基本形状
+            "sphere": [
+                ("low_res", shapes.sphere, {"subdivisions": 0}),
+                ("medium_res", shapes.sphere, {"subdivisions": 0.5}),
+                ("high_res", shapes.sphere, {"subdivisions": 1}),
+            ],
+            "cylinder": [
+                ("default", shapes.cylinder, {}),
+                ("tall", shapes.cylinder, {"height": 2}),
+                ("wide", shapes.cylinder, {"radius": 1.5}),
+            ],
+            "cone": [
+                ("default", shapes.cone, {}),
+                ("sharp", shapes.cone, {"height": 2, "radius": 0.5}),
+                ("flat", shapes.cone, {"height": 0.5, "radius": 1.5}),
+            ],
+            "torus": [
+                ("default", shapes.torus, {}),
+                ("thick", shapes.torus, {"major_radius": 1, "minor_radius": 0.5}),
+                ("thin", shapes.torus, {"major_radius": 1, "minor_radius": 0.1}),
+            ],
+            "capsule": [
+                ("default", shapes.capsule, {}),
+                ("tall", shapes.capsule, {"height": 2}),
+                ("wide", shapes.capsule, {"radius": 1}),
+            ],
+            # 正多面体
+            "polyhedron": [
+                ("tetrahedron", shapes.polyhedron, {"polygon_type": "tetrahedron"}),
+                ("hexahedron", shapes.polyhedron, {"polygon_type": "hexahedron"}),
+                ("octahedron", shapes.polyhedron, {"polygon_type": "octahedron"}),
+                ("dodecahedron", shapes.polyhedron, {"polygon_type": "dodecahedron"}),
+                ("icosahedron", shapes.polyhedron, {"polygon_type": "icosahedron"}),
+            ],
+            # パラメトリック曲線
+            "lissajous": [
+                ("simple", shapes.lissajous, {"a": 3, "b": 2}),
+                ("medium", shapes.lissajous, {"a": 5, "b": 4}),
+                ("complex", shapes.lissajous, {"a": 7, "b": 6}),
+            ],
+            "attractor": [
+                ("lorenz_short", shapes.attractor, {"attractor_type": "lorenz", "points": 1000}),
+                ("lorenz_medium", shapes.attractor, {"attractor_type": "lorenz", "points": 5000}),
+                ("rossler", shapes.attractor, {"attractor_type": "rossler", "points": 5000}),
+            ],
+            # テキスト・グリフ
+            "text": [
+                ("single_char", shapes.text, {"text": "A"}),
+                ("word", shapes.text, {"text": "HELLO"}),
+                ("sentence", shapes.text, {"text": "HELLO WORLD"}),
+            ],
+            "asemic_glyph": [
+                ("default", shapes.asemic_glyph, {}),
+                ("small", shapes.asemic_glyph, {"region": (-0.25, -0.25, 0.25, 0.25)}),
+                ("large", shapes.asemic_glyph, {"region": (-1, -1, 1, 1)}),
+            ],
         }
 
-        try:
-            # Import module directly to avoid circular imports
-            spec = importlib.util.spec_from_file_location(
-                f"shapes.{module_name}", 
-                Path("shapes") / f"{module_name}.py"
-            )
-            if spec is None or spec.loader is None:
-                results["error"] = f"Could not load module spec for {module_name}"
-                return results
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+    def benchmark_shape(self, shape_name: str, variations: List[Tuple[str, Callable, Dict[str, Any]]]) -> Dict[str, Any]:
+        """単一のシェイプタイプをベンチマーク"""
+        results = {
+            "shape": shape_name,
+            "timestamp": datetime.now().isoformat(),
+            "variations": {},
+        }
 
-            # Check cache usage
-            results["cached_functions"] = self.check_cache_usage(module_name)
+        for var_name, shape_func, params in variations:
+            var_results = {
+                "success": False,
+                "error": None,
+                "timings": [],
+                "average_time": 0,
+                "vertex_count": 0,
+                "params": params,
+            }
 
-            # Find and instantiate shape class
-            shape_func = self._get_shape_function(module, module_name)
-            if shape_func is None:
-                results["error"] = f"No shape class with generate method found in {module_name}"
-                return results
+            try:
+                # Warmup
+                for _ in range(self.warmup_runs):
+                    shape_func(**params)
 
-            # Get test parameters for this shape (shape-specific or default)
-            test_params_list = self.test_params.get(module_name, self.test_params["default"])
-
-            # Benchmark for different parameter sets to measure complexity scaling
-            for i, params in enumerate(test_params_list):
-                param_name = f"params_{i}"
-                times, vertex_count = self._benchmark_single_params(shape_func, params, param_name)
-
-                if times is None:
-                    results["error"] = f"Error during benchmark for {param_name}"
-                    break
+                # Benchmark
+                times: List[float] = []
+                for _ in range(self.benchmark_runs):
+                    start_time = time.perf_counter()
+                    geom = shape_func(**params)
+                    end_time = time.perf_counter()
+                    times.append(end_time - start_time)
 
                 if times:
-                    results["timings"][param_name] = times
-                    results["average_times"][param_name] = np.mean(times)
-                    results["vertex_counts"][param_name] = vertex_count
+                    var_results["timings"] = times
+                    var_results["average_time"] = np.mean(times)
+                    var_results["vertex_count"] = len(geom.coords)
+                    var_results["success"] = True
 
-            results["success"] = bool(results["timings"])
+            except Exception as e:
+                var_results["error"] = f"Failed to benchmark {shape_name}.{var_name}: {str(e)}"
 
-        except Exception as e:
-            results["error"] = f"Failed to benchmark {module_name}: {str(e)}"
-            results["traceback"] = traceback.format_exc()
+            results["variations"][var_name] = var_results
 
         return results
 
     def run_benchmarks(self) -> Dict[str, Dict[str, Any]]:
-        """すべてのシェイプモジュールのベンチマークを実行"""
-        modules = self.get_shape_modules()
+        """すべてのGeometry対応シェイプのベンチマークを実行"""
+        shape_functions = self.get_shape_functions()
         all_results = {}
 
-        print(f"Found {len(modules)} shape modules to benchmark")
+        print(f"Found {len(shape_functions)} shape types to benchmark")
         print("-" * 50)
 
-        for module in modules:
-            print(f"Benchmarking {module}...", end=" ")
-            result = self.benchmark_shape(module)
-
-            if result["success"]:
-                avg_time = np.mean(list(result["average_times"].values()))
-                print(f"◯ (avg: {avg_time*1000:.2f}ms)")
+        for shape_name, variations in shape_functions.items():
+            print(f"Benchmarking {shape_name}...", end=" ")
+            result = self.benchmark_shape(shape_name, variations)
+            
+            # Calculate overall average
+            total_times = []
+            success_count = 0
+            for var_result in result["variations"].values():
+                if var_result["success"]:
+                    success_count += 1
+                    total_times.append(var_result["average_time"])
+            
+            if total_times:
+                avg_time = np.mean(total_times)
+                print(f"◯ (avg: {avg_time*1000:.2f}ms, {success_count}/{len(variations)} variations)")
             else:
-                print(f"× ({result['error']})")
+                print(f"× (all variations failed)")
 
-            all_results[module] = result
+            all_results[shape_name] = result
 
         return all_results
 
-    def save_results(self, results: Dict[str, Dict[str, Any]]) -> str:
+    def save_results(self, results: Dict[str, Dict]) -> str:
         """タイムスタンプ付きでベンチマーク結果を保存"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = self.shapes_dir / f"benchmark_{timestamp}.json"
@@ -271,262 +208,185 @@ class ShapeBenchmark:
         return str(filename)
 
     def visualize_results(self, results: BenchmarkResult, save_path: Optional[str] = None) -> None:
-        """ベンチマーク結果の横棒グラフを作成"""
-        # Extract visualization data
-        viz_data = self._extract_visualization_data(results)
+        """ベンチマーク結果の可視化"""
+        # 結果を処理時間でソート（最も遅いものから）
+        sorted_shapes = []
+        for shape_name, shape_data in results.items():
+            avg_times = [v["average_time"] for v in shape_data["variations"].values() if v["success"]]
+            if avg_times:
+                sorted_shapes.append((shape_name, np.mean(avg_times)))
+        sorted_shapes.sort(key=lambda x: x[1], reverse=True)
+        
+        # 上位15個の形状を選択
+        top_shapes = [name for name, _ in sorted_shapes[:15]]
+        
+        # Create figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 10))
+        
+        # Chart 1: Top 15 shapes by average time
+        self._plot_top_shapes(ax1, results, top_shapes)
+        
+        # Chart 2: Time vs vertex count scatter plot
+        self._plot_time_vs_vertices(ax2, results)
 
-        # Create charts
-        fig, _ = self._create_benchmark_charts(viz_data)
+        plt.suptitle(f'Geometry Shape Benchmarks - {datetime.now().strftime("%Y-%m-%d %H:%M")}', fontsize=16)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         # Save chart
         self._save_chart(fig, save_path)
 
-    def compare_historical(self, num_recent: int = 5) -> None:
-        """最近のベンチマーク結果を比較して、時間経過による改善を表示"""
-        # Get all benchmark files
-        benchmark_files = sorted(self.shapes_dir.glob("benchmark_*.json"))
-
-        if len(benchmark_files) < 2:
-            print("Not enough historical data for comparison")
-            return
-
-        # Load recent results
-        recent_files = benchmark_files[-num_recent:]
-        historical_data: Dict[str, Dict[str, Any]] = {}
-
-        for file in recent_files:
-            with open(file, "r") as f:
-                data = json.load(f)
-                timestamp = file.stem.replace("benchmark_", "")
-                historical_data[timestamp] = data
-
-        # Prepare comparison data
-        modules_set: Set[str] = set()
-        for data in historical_data.values():
-            modules_set.update(data.keys())
-
-        modules: List[str] = sorted(modules_set)
-
-        # Create comparison chart
-        _, ax = plt.subplots(figsize=(14, max(8, len(modules) * 0.5)))
-
-        timestamps = sorted(historical_data.keys())
-        x = np.arange(len(timestamps))
-        width = 0.8 / len(modules)
-
-        for i, module in enumerate(modules):
-            times: List[Union[float, None]] = []
-            for ts in timestamps:
-                if module in historical_data[ts] and historical_data[ts][module]["success"]:
-                    # Use average of all parameter sets
-                    avg_times = historical_data[ts][module]["average_times"]
-                    if avg_times:
-                        times.append(np.mean(list(avg_times.values())) * 1000)  # type: ignore
-                    else:
-                        times.append(None)
-                else:
-                    times.append(None)
-
-            # Plot only if we have data
-            if any(t is not None for t in times):
-                positions = x + i * width - 0.4 + width / 2
-                valid_times = [t if t is not None else 0 for t in times]
-                ax.bar(positions, valid_times, width, label=module, alpha=0.8)
-
-        ax.set_xlabel("Benchmark Run")
-        ax.set_ylabel("Average Time (ms)")
-        ax.set_title(f"Historical Performance Comparison (Last {num_recent} Runs)")
-        ax.set_xticks(x)
-        ax.set_xticklabels([ts[:8] + "\\n" + ts[9:].replace("_", ":") for ts in timestamps], rotation=45, ha="right")
-        ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=2)
-        ax.grid(axis="y", alpha=0.3)
-
-        plt.tight_layout()
-
-        comparison_file = self.shapes_dir / "historical_comparison.png"
-        plt.savefig(comparison_file, dpi=150, bbox_inches="tight")
-        plt.close()
-
-        print(f"Historical comparison saved to {comparison_file}")
-
-    def _get_shape_function(self, module: Any, module_name: str) -> Optional[ShapeFunction]:
-        """シェイプクラスを検索してインスタンス化"""
-        # Try to find shape class by name matching
-        for name, obj in inspect.getmembers(module):
-            if inspect.isclass(obj) and name.lower() == module_name.lower():
-                try:
-                    instance = obj()
-                    if hasattr(instance, "generate") or hasattr(instance, "__call__"):
-                        # Return instance directly for cache access
-                        return instance
-                except Exception:
-                    pass
-
-        # Try any class with generate method or __call__
-        for name, obj in inspect.getmembers(module):
-            if inspect.isclass(obj) and (hasattr(obj, "generate") or hasattr(obj, "__call__")):
-                try:
-                    instance = obj()
-                    # Return instance directly for cache access
-                    return instance
-                except Exception:
-                    pass
-
-        return None
-
-    def _benchmark_single_params(
-        self, shape_func: ShapeFunction, params: Dict[str, Any], param_name: str
-    ) -> Tuple[Optional[List[float]], Optional[int]]:
-        """単一パラメータセットでベンチマークを実行"""
-        # shape_func is now the instance directly
-        shape_instance = shape_func
+    def _plot_top_shapes(self, ax: Axes, results: Dict[str, Any], top_shapes: List[str]) -> None:
+        """上位シェイプの実行時間をプロット"""
+        shapes = []
+        times = []
+        colors = []
         
-        # Warmup
-        vertex_count = None
-        for _ in range(self.warmup_runs):
-            try:
-                # Call the instance directly or use generate method
-                if hasattr(shape_instance, "__call__"):
-                    vertices_list = shape_instance(**params)
-                else:
-                    vertices_list = shape_instance.generate(**params)
-                if vertex_count is None:
-                    vertex_count = sum(len(v) for v in vertices_list)
-            except Exception:
-                return None, None
+        for shape_name in top_shapes:
+            if shape_name in results:
+                shape_data = results[shape_name]
+                for var_name, var_data in shape_data["variations"].items():
+                    if var_data["success"]:
+                        shapes.append(f"{shape_name}\n{var_name}")
+                        times.append(var_data["average_time"] * 1000)
+                        # Color by shape type
+                        if shape_name in ["sphere", "cylinder", "cone", "torus", "capsule"]:
+                            colors.append("lightcoral")  # 3D shapes
+                        elif shape_name == "polyhedron":
+                            colors.append("lightgreen")  # Polyhedra
+                        elif shape_name in ["lissajous", "attractor"]:
+                            colors.append("lightsalmon")  # Parametric
+                        elif shape_name in ["text", "asemic_glyph"]:
+                            colors.append("lightgoldenrodyellow")  # Text
+                        else:
+                            colors.append("lightblue")  # 2D shapes
+        
+        y_pos = np.arange(len(shapes))
+        bars = ax.barh(y_pos, times, color=colors)
+        
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(shapes, fontsize=8)
+        ax.set_xlabel('Time (ms)')
+        ax.set_title('Top 15 Shapes by Execution Time')
+        ax.grid(axis='x', alpha=0.3)
+        
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width, bar.get_y() + bar.get_height()/2,
+                   f'{width:.2f}',
+                   ha='left', va='center', fontsize=7)
 
-        # Clear cache after warmup to ensure benchmark measures actual computation
-        if hasattr(shape_instance, 'clear_cache'):
-            shape_instance.clear_cache()
-
-        # Benchmark
-        times: List[float] = []
-        for _ in range(self.benchmark_runs):
-            try:
-                start_time = time.perf_counter()
-                # Call the instance directly or use generate method
-                if hasattr(shape_instance, "__call__"):
-                    shape_instance(**params)
-                else:
-                    shape_instance.generate(**params)
-                end_time = time.perf_counter()
-                times.append(end_time - start_time)
-                
-                # Clear cache after each run to measure actual computation time
-                if hasattr(shape_instance, 'clear_cache'):
-                    shape_instance.clear_cache()
-            except Exception:
-                return None, None
-
-        return times, vertex_count
-
-    def _extract_visualization_data(self, results: BenchmarkResult) -> Dict[str, List[Any]]:
-        """可視化用のデータを抽出"""
-        modules: List[str] = []
-        param_0_times: List[float] = []
-        param_1_times: List[float] = []
-        param_2_times: List[float] = []
-        has_cache: List[str] = []
-        success_status: List[str] = []
-
-        for module, data in sorted(results.items()):
-            modules.append(module)
-
-            if data["success"]:
-                # Get times for each parameter set
-                times = []
-                for i in range(3):
-                    param_key = f"params_{i}"
-                    if param_key in data["average_times"]:
-                        times.append(data["average_times"][param_key] * 1000)
+    def _plot_time_vs_vertices(self, ax: Axes, results: Dict[str, Any]) -> None:
+        """実行時間と頂点数の相関をプロット"""
+        vertex_counts = []
+        times = []
+        labels = []
+        colors = []
+        
+        for shape_name, shape_data in results.items():
+            for var_name, var_data in shape_data["variations"].items():
+                if var_data["success"]:
+                    vertex_counts.append(var_data["vertex_count"])
+                    times.append(var_data["average_time"] * 1000)
+                    labels.append(f"{shape_name}_{var_name}")
+                    
+                    # Color by shape type
+                    if shape_name in ["sphere", "cylinder", "cone", "torus", "capsule"]:
+                        colors.append("red")  # 3D shapes
+                    elif shape_name == "polyhedron":
+                        colors.append("green")  # Polyhedra
+                    elif shape_name in ["lissajous", "attractor"]:
+                        colors.append("orange")  # Parametric
+                    elif shape_name in ["text", "asemic_glyph"]:
+                        colors.append("purple")  # Text
                     else:
-                        times.append(0)
-                
-                param_0_times.append(times[0])
-                param_1_times.append(times[1])
-                param_2_times.append(times[2])
-                success_status.append("◯")
-            else:
-                param_0_times.append(0)
-                param_1_times.append(0)
-                param_2_times.append(0)
-                success_status.append("×")
-
-            cached_funcs = data.get("cached_functions", {})
-            has_cache.append("◆" if any(cached_funcs.values()) else "◇")
-
-        return {
-            "modules": modules,
-            "param_0_times": param_0_times,
-            "param_1_times": param_1_times,
-            "param_2_times": param_2_times,
-            "has_cache": has_cache,
-            "success_status": success_status,
-        }
-
-    def _create_benchmark_charts(self, viz_data: Dict[str, List[Any]]) -> Tuple[Figure, List[Axes]]:
-        """ベンチマークチャートを作成"""
-        modules = viz_data["modules"]
-        fig, axes = plt.subplots(1, 3, figsize=(18, max(8, len(modules) * 0.4)))
-        y_pos = np.arange(len(modules))
-
-        # Chart configurations
-        chart_configs = [
-            ("param_0_times", "lightblue", "Parameter Set 1 (Simple)"),
-            ("param_1_times", "lightgreen", "Parameter Set 2 (Medium)"),
-            ("param_2_times", "lightcoral", "Parameter Set 3 (Complex)"),
+                        colors.append("blue")  # 2D shapes
+        
+        ax.scatter(vertex_counts, times, c=colors, alpha=0.6, s=50)
+        ax.set_xlabel('Vertex Count')
+        ax.set_ylabel('Time (ms)')
+        ax.set_title('Execution Time vs Vertex Count')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3)
+        
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='blue', label='2D Shapes'),
+            Patch(facecolor='red', label='3D Shapes'),
+            Patch(facecolor='green', label='Polyhedra'),
+            Patch(facecolor='orange', label='Parametric'),
+            Patch(facecolor='purple', label='Text')
         ]
-
-        # Create charts
-        for ax, (data_key, color, title) in zip(axes, chart_configs):
-            bars = ax.barh(y_pos, viz_data[data_key], color=color)
-            ax.set_yticks(y_pos)
-            ax.set_yticklabels(
-                [
-                    f"{m} {s} {c}"
-                    for m, s, c in zip(viz_data["modules"], viz_data["success_status"], viz_data["has_cache"])
-                ]
-            )
-            ax.set_xlabel("Time (ms)")
-            ax.set_title(title)
-            ax.grid(axis="x", alpha=0.3)
-
-            # Add value labels
-            for bar in bars:
-                width = bar.get_width()
-                if width > 0:
-                    ax.text(
-                        width, bar.get_y() + bar.get_height() / 2, f"{width:.1f}", ha="left", va="center", fontsize=8
-                    )
-
-        plt.suptitle(f'Shape Module Benchmarks - {datetime.now().strftime("%Y-%m-%d %H:%M")}')
-        plt.tight_layout()
-        # Adjust subplot positions to make room for the legend at the bottom
-        plt.subplots_adjust(bottom=0.125)
-        fig.text(0.5, 0.05, "◯ = Success, × = Failed, ◆ = Uses cache, ◇ = No cache", ha="center", fontsize=10)
-
-        return fig, axes
+        ax.legend(handles=legend_elements, loc='upper left')
 
     def _save_chart(self, fig: Figure, save_path: Optional[str] = None) -> None:
         """チャートを保存"""
         if save_path:
-            fig.savefig(save_path, dpi=150, bbox_inches="tight")
+            plt.savefig(save_path, dpi=150, bbox_inches="tight")
         else:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_file = self.shapes_dir / f"benchmark_chart_{timestamp}.png"
-            fig.savefig(save_file, dpi=150, bbox_inches="tight")
+            plt.savefig(save_file, dpi=150, bbox_inches="tight")
 
             # Also save as latest
             latest_chart = self.shapes_dir / "latest_chart.png"
-            fig.savefig(latest_chart, dpi=150, bbox_inches="tight")
+            plt.savefig(latest_chart, dpi=150, bbox_inches="tight")
 
-        plt.close(fig)
+        plt.close()
+
+    def print_summary(self, results: Dict[str, Dict[str, Any]]) -> None:
+        """結果のサマリーを表示"""
+        print("\nDetailed Summary:")
+        print("-" * 50)
+        
+        # 形状タイプ別の統計
+        shape_types = {
+            "2D": ["polygon", "grid"],
+            "3D": ["sphere", "cylinder", "cone", "torus", "capsule"],
+            "Polyhedra": ["polyhedron"],
+            "Parametric": ["lissajous", "attractor"],
+            "Text": ["text", "asemic_glyph"]
+        }
+        
+        for type_name, shapes in shape_types.items():
+            times = []
+            for shape in shapes:
+                if shape in results:
+                    for var_data in results[shape]["variations"].values():
+                        if var_data["success"]:
+                            times.append(var_data["average_time"])
+            
+            if times:
+                print(f"\n{type_name} Shapes:")
+                print(f"  Count: {len(times)}")
+                print(f"  Avg time: {np.mean(times)*1000:.2f}ms")
+                print(f"  Min time: {np.min(times)*1000:.2f}ms")
+                print(f"  Max time: {np.max(times)*1000:.2f}ms")
+        
+        # 最も遅い5つの形状
+        print("\nSlowest 5 shapes:")
+        all_shapes = []
+        for shape_name, shape_data in results.items():
+            for var_name, var_data in shape_data["variations"].items():
+                if var_data["success"]:
+                    all_shapes.append((
+                        f"{shape_name}.{var_name}",
+                        var_data["average_time"] * 1000,
+                        var_data["vertex_count"]
+                    ))
+        
+        all_shapes.sort(key=lambda x: x[1], reverse=True)
+        for name, time_ms, vertices in all_shapes[:5]:
+            print(f"  {name}: {time_ms:.2f}ms ({vertices} vertices)")
 
 
 def main() -> None:
-    benchmark = ShapeBenchmark()
+    """メインのベンチマーク実行"""
+    benchmark = GeometryShapeBenchmark()
 
-    print("Starting Shape Module Benchmark Suite")
+    print("Starting Geometry Shape Benchmark Suite")
     print("=" * 50)
 
     # Run benchmarks
@@ -534,37 +394,25 @@ def main() -> None:
 
     # Save results
     saved_file = benchmark.save_results(results)
-    print(f"\\nResults saved to: {saved_file}")
+    print(f"\nResults saved to: {saved_file}")
 
     # Visualize results
     benchmark.visualize_results(results)
     print(f"Visualization saved to: {benchmark.shapes_dir / 'latest_chart.png'}")
 
-    # Compare historical data
-    print("\\nGenerating historical comparison...")
-    benchmark.compare_historical()
+    # Print summary
+    benchmark.print_summary(results)
 
     # Summary
-    print("\\nSummary:")
+    print("\nOverall Summary:")
     print("-" * 30)
-    successful = sum(1 for r in results.values() if r["success"])
-    failed = len(results) - successful
-    print(f"Total modules: {len(results)}")
-    print(f"Successful: {successful}")
-    print(f"Failed: {failed}")
-
-    # Show vertex counts
-    print("\\nVertex counts by shape:")
-    for module, data in sorted(results.items()):
-        if data["success"] and data["vertex_counts"]:
-            counts = ", ".join(f"{k}: {v}" for k, v in data["vertex_counts"].items())
-            print(f"  - {module}: {counts}")
-
-    if failed > 0:
-        print("\\nFailed modules:")
-        for module, data in results.items():
-            if not data["success"]:
-                print(f"  - {module}: {data['error']}")
+    total_variations = sum(len(r["variations"]) for r in results.values())
+    successful_variations = sum(1 for r in results.values() for v in r["variations"].values() if v["success"])
+    
+    print(f"Total shape types: {len(results)}")
+    print(f"Total variations: {total_variations}")
+    print(f"Successful: {successful_variations}")
+    print(f"Failed: {total_variations - successful_variations}")
 
 
 if __name__ == "__main__":

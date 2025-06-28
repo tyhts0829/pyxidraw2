@@ -1,7 +1,7 @@
 import arc
 import numpy as np
 
-from api.effects import rotation, scaling, transform, translation
+from api.effects import noise, rotation, scaling, transform, translation
 from api.runner import run_sketch
 from api.shapes import polygon, sphere
 from engine.core.geometry import Geometry
@@ -10,6 +10,7 @@ from util.constants import CANVAS_SIZES
 
 def draw(t, cc) -> Geometry:
     sph = sphere(subdivisions=cc[1]).transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[2], cc[3], 0))
+    sph = noise(sph, intensity=cc[4])
     return sph
 
 

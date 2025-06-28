@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 
+from engine.core.geometry import Geometry
 from util.constants import NOISE_CONST
 
 from .base import BaseEffect
@@ -94,29 +95,26 @@ def perlin_core(vertices: np.ndarray, frequency: tuple, perm_table: np.ndarray, 
 
 
 @njit(fastmath=True, cache=True)
-def _apply_noise(
-    vertices: np.ndarray, intensity: float, frequency: tuple, t: float, perm_table: np.ndarray, grad3_array: np.ndarray
+def _apply_noise_to_coords(
+    coords: np.ndarray, intensity: float, frequency: tuple, t: float, perm_table: np.ndarray, grad3_array: np.ndarray
 ) -> np.ndarray:
-    """頂点にPerlinノイズを適用します。"""
-    if vertices.size == 0 or not intensity:
-        return vertices.astype(np.float32)
+    """座標配列にPerlinノイズを適用します。"""
+    if coords.size == 0 or not intensity:
+        return coords.copy()
 
     # 係数調整
     intensity = intensity * 10
     t_offset = np.float32(t * 0.01 + 1000.0)
 
-    # 入力をfloat32に変換
-    vertices_f32 = vertices.astype(np.float32)
-
     # オフセット付き頂点を作成
-    offset_vertices = vertices_f32 + t_offset
+    offset_coords = coords + t_offset
 
     # Perlinノイズ計算
     noise_offset = perlin_core(
-        offset_vertices, (frequency[0] * 0.1, frequency[1] * 0.1, frequency[2] * 0.1), perm_table, grad3_array
+        offset_coords, (frequency[0] * 0.1, frequency[1] * 0.1, frequency[2] * 0.1), perm_table, grad3_array
     )
 
-    return vertices_f32 + noise_offset * np.float32(intensity)
+    return coords + noise_offset * np.float32(intensity)
 
 
 # Perlinノイズ用のPermutationテーブルを作成
@@ -130,6 +128,36 @@ grad3 = np.array(NOISE_CONST["GRAD3"], dtype=np.float32)
 class Noise(BaseEffect):
     """3次元頂点にPerlinノイズを追加します。"""
 
+    def apply_to_geometry(
+        self,
+        geometry: Geometry,
+        intensity: float = 0.5,
+        frequency: tuple | float = (0.5, 0.5, 0.5),
+        t: float = 0.0,
+    ) -> Geometry:
+        """GeometryにPerlinノイズエフェクトを適用します。
+
+        Args:
+            geometry: 入力Geometry
+            intensity: ノイズの強度
+            frequency: ノイズの周波数（tuple or float）
+            t: 時間パラメータ
+
+        Returns:
+            Perlinノイズが適用されたGeometry
+        """
+        # 周波数の正規化
+        if isinstance(frequency, (int, float)):
+            frequency = (frequency, frequency, frequency)
+        elif len(frequency) == 1:
+            frequency = (frequency[0], frequency[0], frequency[0])
+
+        # 座標にノイズを適用
+        new_coords = _apply_noise_to_coords(geometry.coords, intensity, frequency, t, perm, grad3)
+        
+        # 新しいGeometryを作成して返す
+        return Geometry(new_coords, geometry.offsets.copy())
+
     def apply(
         self,
         vertices_list: list[np.ndarray],
@@ -137,7 +165,7 @@ class Noise(BaseEffect):
         frequency: tuple | float = (0.5, 0.5, 0.5),
         t: float = 0.0,
     ) -> list[np.ndarray]:
-        """Perlinノイズエフェクトを適用します。
+        """Perlinノイズエフェクトを適用します（後方互換性のため）。
 
         Args:
             vertices_list: 入力頂点配列（各配列は(N, 3)形状）
@@ -148,31 +176,39 @@ class Noise(BaseEffect):
         Returns:
             Perlinノイズが適用された頂点配列
         """
-        # 周波数の正規化
-        if isinstance(frequency, (int, float)):
-            frequency = (frequency, frequency, frequency)
-        elif len(frequency) == 1:
-            frequency = (frequency[0], frequency[0], frequency[0])
-
-        # Apply Perlin noise to each vertex array
+        # Geometryに変換
+        geometry = Geometry.from_lines(vertices_list)
+        
+        # エフェクトを適用
+        new_geometry = self.apply_to_geometry(geometry, intensity, frequency, t)
+        
+        # 元の形式に戻す
         new_vertices_list = []
-        for i, vertices in enumerate(vertices_list):
-            # try:
-            # 空配列の場合はそのまま返す
-            if vertices.size == 0:
-                new_vertices_list.append(vertices.astype(np.float32))
-            else:
-                # 入力検証
-                if len(vertices.shape) != 2 or vertices.shape[1] != 3:
-                    print(f"Warning: Expected 3D vertices, got shape {vertices.shape}")
-                    new_vertices_list.append(vertices.astype(np.float32))
-                    continue
-
-                noisy_vertices = _apply_noise(vertices, intensity, frequency, t, perm, grad3)
-                new_vertices_list.append(noisy_vertices.astype(np.float32))
-            # except Exception as e:
-            #     print(f"Warning: Failed to apply noise to vertices[{i}]: {e}")
-            #     # エラー時は元の頂点配列をそのまま返す
-            #     new_vertices_list.append(vertices.astype(np.float32))
-
+        for i in range(len(geometry.offsets) - 1):
+            start = geometry.offsets[i]
+            end = geometry.offsets[i + 1]
+            new_vertices_list.append(new_geometry.coords[start:end])
+        
         return new_vertices_list
+
+
+# api.effects用のラッパー関数
+def noise(
+    geometry: Geometry,
+    intensity: float = 0.5,
+    frequency: tuple | float = (0.5, 0.5, 0.5),
+    time: float = 0.0,
+) -> Geometry:
+    """GeometryにPerlinノイズを適用します。
+
+    Args:
+        geometry: 入力Geometry
+        intensity: ノイズの強度 (0.0-1.0)
+        frequency: ノイズの周波数
+        time: 時間パラメータ
+
+    Returns:
+        ノイズが適用されたGeometry
+    """
+    effect = Noise()
+    return effect.apply_to_geometry(geometry, intensity, frequency, time)
