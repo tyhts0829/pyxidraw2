@@ -204,6 +204,305 @@ class Geometry:
         """サイズ指定（scale_uniform のエイリアス）"""
         return self.scale_uniform(factor)
 
+    def spin(self, angle: float) -> "Geometry":
+        """Z軸回転（rotate_z のエイリアス）"""
+        return self.rotate_z(angle)
+
+    # ── エフェクトメソッド（api/effectsの有効エフェクト） ───────────────────
+    def subdivision(self, n_divisions: float = 0.5) -> "Geometry":
+        """線を細分化（キャッシュ付きメソッドチェーン対応）"""
+        def _subdivision_effect(geom, **kwargs):
+            from api.effects import subdivision
+            return subdivision(geom, n_divisions=kwargs["n_divisions"])
+        
+        return self._apply_cached_effect("subdivision", _subdivision_effect, n_divisions=n_divisions)
+
+    def extrude(
+        self,
+        direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        distance: float = 0.5,
+        scale: float = 0.5,
+        subdivisions: float = 0.5,
+    ) -> "Geometry":
+        """2D形状を3Dに押し出し（キャッシュ付きメソッドチェーン対応）"""
+        def _extrude_effect(geom, **kwargs):
+            from api.effects import extrude
+            return extrude(
+                geom,
+                direction=kwargs["direction"],
+                distance=kwargs["distance"],
+                scale=kwargs["scale"],
+                subdivisions=kwargs["subdivisions"]
+            )
+        
+        return self._apply_cached_effect(
+            "extrude", _extrude_effect,
+            direction=direction, distance=distance, scale=scale, subdivisions=subdivisions
+        )
+
+    def filling(
+        self,
+        pattern: str = "lines",
+        density: float = 0.5,
+        angle: float = 0.0,
+    ) -> "Geometry":
+        """ハッチングパターンで塗りつぶし（キャッシュ付きメソッドチェーン対応）"""
+        def _filling_effect(geom, **kwargs):
+            from api.effects import filling
+            return filling(
+                geom,
+                pattern=kwargs["pattern"],
+                density=kwargs["density"],
+                angle=kwargs["angle"]
+            )
+        
+        return self._apply_cached_effect(
+            "filling", _filling_effect,
+            pattern=pattern, density=density, angle=angle
+        )
+
+    def noise(
+        self,
+        intensity: float = 0.5,
+        frequency: tuple[float, float, float] | float = (0.5, 0.5, 0.5),
+        time: float = 0.0,
+    ) -> "Geometry":
+        """Perlinノイズを適用（キャッシュ付きメソッドチェーン対応）"""
+        def _noise_effect(geom, **kwargs):
+            from api.effects import noise
+            return noise(
+                geom,
+                intensity=kwargs["intensity"],
+                frequency=kwargs["frequency"],
+                time=kwargs["time"]
+            )
+        
+        return self._apply_cached_effect(
+            "noise", _noise_effect,
+            intensity=intensity, frequency=frequency, time=time
+        )
+
+    def buffer(
+        self,
+        distance: float = 0.5,
+        join_style: float = 0.5,
+        resolution: float = 0.5,
+    ) -> "Geometry":
+        """パス周りにバッファ/オフセットを作成（キャッシュ付きメソッドチェーン対応）"""
+        def _buffer_effect(geom, **kwargs):
+            from api.effects import buffer
+            return buffer(
+                geom,
+                distance=kwargs["distance"],
+                join_style=kwargs["join_style"],
+                resolution=kwargs["resolution"]
+            )
+        
+        return self._apply_cached_effect(
+            "buffer", _buffer_effect,
+            distance=distance, join_style=join_style, resolution=resolution
+        )
+
+    def array(
+        self,
+        n_duplicates: float = 0.5,
+        offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        rotate: tuple[float, float, float] = (0.5, 0.5, 0.5),
+        scale: tuple[float, float, float] = (0.5, 0.5, 0.5),
+        center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> "Geometry":
+        """入力のコピーを配列状に生成（キャッシュ付きメソッドチェーン対応）"""
+        def _array_effect(geom, **kwargs):
+            from api.effects import array
+            return array(
+                geom,
+                n_duplicates=kwargs["n_duplicates"],
+                offset=kwargs["offset"],
+                rotate=kwargs["rotate"],
+                scale=kwargs["scale"],
+                center=kwargs["center"]
+            )
+        
+        return self._apply_cached_effect(
+            "array", _array_effect,
+            n_duplicates=n_duplicates, offset=offset, rotate=rotate, scale=scale, center=center
+        )
+
+    # ── クラスメソッド（形状生成） ───────────────────
+    @classmethod
+    def polygon(
+        cls,
+        n_sides: int | float = 3,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """正多角形を生成"""
+        from api.shapes import polygon
+        return polygon(n_sides, center, scale, rotate, **params)
+
+    @classmethod
+    def sphere(
+        cls,
+        subdivisions: float = 0.5,
+        sphere_type: float = 0.5,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """球体を生成"""
+        from api.shapes import sphere
+        return sphere(subdivisions, sphere_type, center, scale, rotate, **params)
+
+    @classmethod
+    def grid(
+        cls,
+        n_divisions: tuple[float, float] = (0.1, 0.1),
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """グリッドを生成"""
+        from api.shapes import grid
+        return grid(n_divisions, center, scale, rotate, **params)
+
+    @classmethod
+    def polyhedron(
+        cls,
+        polygon_type: str | int = "tetrahedron",
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """正多面体を生成"""
+        from api.shapes import polyhedron
+        return polyhedron(polygon_type, center, scale, rotate, **params)
+
+    @classmethod
+    def lissajous(
+        cls,
+        freq_x: float = 3.0,
+        freq_y: float = 2.0,
+        phase: float = 0.0,
+        points: int = 1000,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """リサージュ曲線を生成"""
+        from api.shapes import lissajous
+        return lissajous(freq_x, freq_y, phase, points, center, scale, rotate, **params)
+
+    @classmethod
+    def torus(
+        cls,
+        major_radius: float = 0.3,
+        minor_radius: float = 0.1,
+        major_segments: int = 32,
+        minor_segments: int = 16,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """トーラスを生成"""
+        from api.shapes import torus
+        return torus(major_radius, minor_radius, major_segments, minor_segments, center, scale, rotate, **params)
+
+    @classmethod
+    def cylinder(
+        cls,
+        radius: float = 0.3,
+        height: float = 0.6,
+        segments: int = 32,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """円柱を生成"""
+        from api.shapes import cylinder
+        return cylinder(radius, height, segments, center, scale, rotate, **params)
+
+    @classmethod
+    def cone(
+        cls,
+        radius: float = 0.3,
+        height: float = 0.6,
+        segments: int = 32,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """円錐を生成"""
+        from api.shapes import cone
+        return cone(radius, height, segments, center, scale, rotate, **params)
+
+    @classmethod
+    def capsule(
+        cls,
+        radius: float = 0.2,
+        height: float = 0.4,
+        segments: int = 32,
+        latitude_segments: int = 16,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """カプセル形状を生成"""
+        from api.shapes import capsule
+        return capsule(radius, height, segments, latitude_segments, center, scale, rotate, **params)
+
+    @classmethod
+    def attractor(
+        cls,
+        attractor_type: str = "lorenz",
+        points: int = 10000,
+        dt: float = 0.01,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """ストレンジアトラクターを生成"""
+        from api.shapes import attractor
+        return attractor(attractor_type, points, dt, center, scale, rotate, **params)
+
+    @classmethod
+    def text(
+        cls,
+        text: str = "HELLO",
+        size: float = 0.1,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """テキストを線分として生成"""
+        from api.shapes import text as text_shape
+        return text_shape(text, size, center, scale, rotate, **params)
+
+    @classmethod
+    def asemic_glyph(
+        cls,
+        complexity: int = 5,
+        seed: int | None = None,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+        **params,
+    ) -> "Geometry":
+        """抽象的なグリフ状の形状を生成"""
+        from api.shapes import asemic_glyph
+        return asemic_glyph(complexity, seed, center, scale, rotate, **params)
+
     # ── キャッシュ管理・デバッグ用メソッド ───────────────────
     @classmethod
     def clear_effect_cache(cls):

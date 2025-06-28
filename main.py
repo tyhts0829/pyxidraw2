@@ -12,21 +12,24 @@ from api.effects import (
     translation,
 )
 from api.runner import run_sketch
-from api.shapes import polygon, polyhedron, sphere
 from engine.core.geometry import Geometry
 from util.constants import CANVAS_SIZES
 
 
 def draw(t, cc) -> Geometry:
-    sph = sphere(subdivisions=cc[1]).transform(
-        center=(100, 100, 0),
-        scale=(100, 100, 100),
-        rotate=(cc[2], cc[2], cc[2]),
+    sph = (
+        Geometry.sphere(subdivisions=cc[1], sphere_type=cc[4])
+        .transform(
+            center=(100, 100, 0),
+            scale=(100, 100, 100),
+            rotate=(cc[2], cc[2], cc[2]),
+        )
+        .noise(intensity=cc[3])
     )
     # sph = buffer(sph, distance=cc[4])
     # sph = filling(sph, density=cc[5])
     # sph = subdivision(sph, n_divisions=cc[3])
-    sph = noise(sph, intensity=cc[4])
+    # sph = noise(sph, intensity=cc[4])
     return sph
 
 

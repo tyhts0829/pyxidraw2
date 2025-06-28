@@ -36,6 +36,7 @@ def polygon(
 
 def sphere(
     subdivisions: float = 0.5,
+    sphere_type: float = 0.5,
     center: tuple[float, float, float] = (0, 0, 0),
     scale: tuple[float, float, float] = (1, 1, 1),
     rotate: tuple[float, float, float] = (0, 0, 0),
@@ -45,16 +46,22 @@ def sphere(
 
     Args:
         subdivisions: 細分化レベル (0.0-1.0、0-5にマップ)
+        sphere_type: 描画スタイル (0.0-1.0):
+                    0.0-0.2: 経緯線（デフォルト）
+                    0.2-0.4: ワイヤーフレーム
+                    0.4-0.6: ジグザグ
+                    0.6-0.8: 正二十面体
+                    0.8-1.0: リング
         center: 位置オフセット (x, y, z)
         scale: スケール係数 (x, y, z)
         rotate: 回転角度（ラジアン） (x, y, z)
         **params: 追加パラメータ
 
     Returns:
-        球体三角形の頂点を含むGeometry
+        球体の頂点を含むGeometry
     """
     shape = _factory.create("sphere")
-    return shape(subdivisions=subdivisions, center=center, scale=scale, rotate=rotate, **params)
+    return shape(subdivisions=subdivisions, sphere_type=sphere_type, center=center, scale=scale, rotate=rotate, **params)
 
 
 def grid(
