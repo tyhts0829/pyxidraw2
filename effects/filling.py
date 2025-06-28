@@ -6,6 +6,7 @@ import numpy as np
 from numba import njit
 
 from util.geometry import transform_back, transform_to_xy_plane
+from engine.core.geometry import Geometry
 
 from .base import BaseEffect
 
@@ -14,39 +15,42 @@ class Filling(BaseEffect):
     """閉じた形状をハッチングパターンで塗りつぶします。"""
 
     # 塗りつぶし線の最大密度（density=1.0のときの線間隔の係数）
-    MAX_FILL_LINES = 100  # density=1.0のときに最大50本の線を生成
+    MAX_FILL_LINES = 100  # density=1.0のときに最大100本の線を生成
 
-    def apply(self, vertices_list: list[np.ndarray], **params: Any) -> list[np.ndarray]:
+    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
         """塗りつぶしエフェクトを適用します。
 
         Args:
-            vertices_list: 入力頂点配列（閉じた形状を形成する必要がある）
+            geometry: 入力Geometryオブジェクト（閉じた形状を形成する必要がある）
             pattern: 塗りつぶしパターン ("lines", "cross", "dots") - デフォルト "lines"
-            density: 塗りつぶし密度 (0.0-1.0)
-            angle: パターンの角度（ラジアン）
+            density: 塗りつぶし密度 (0.0-1.0) - デフォルト 0.5
+            angle: パターンの角度（ラジアン） - デフォルト 0.0
             **params: 追加パラメータ
 
         Returns:
-            元の形状と塗りつぶし線を含む塗りつぶし頂点配列
+            元の形状と塗りつぶし線を含むGeometryオブジェクト
         """
         pattern = params.get("pattern", "lines")
-        density = params.get("density", 0.1)
+        density = params.get("density", 0.5)
         angle = params.get("angle", 0.0)
 
         if density <= 0:
-            return vertices_list.copy()
+            return geometry
 
         filled_results = []
-
-        for vertices in vertices_list:
+        
+        # 既存の線を追加
+        coords, offsets = geometry.as_arrays()
+        for i in range(len(offsets) - 1):
+            vertices = coords[offsets[i]:offsets[i+1]]
             if len(vertices) < 3:
                 filled_results.append(vertices)
                 continue
 
-            # Add original shape
+            # 元の形状を追加
             filled_results.append(vertices)
 
-            # Generate fill lines
+            # 塗りつぶし線を生成
             if pattern == "lines":
                 fill_lines = self._generate_line_fill(vertices, density, angle)
             elif pattern == "cross":
@@ -58,7 +62,7 @@ class Filling(BaseEffect):
 
             filled_results.extend(fill_lines)
 
-        return filled_results
+        return Geometry.from_lines(filled_results)
 
     def _generate_line_fill(self, vertices: np.ndarray, density: float, angle: float = 0.0) -> list[np.ndarray]:
         """平行線塗りつぶしパターンを生成します。"""

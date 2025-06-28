@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 from numba import njit
 
+from engine.core.geometry import Geometry
+
 from .base import BaseEffect
 
 
@@ -13,31 +15,35 @@ class Subdivision(BaseEffect):
 
     MAX_DIVISIONS = 10  # 最大分割回数
 
-    def apply(self, vertices_list: list[np.ndarray], n_divisions: float = 0.0, **_params: Any) -> list[np.ndarray]:
+    def apply(self, geometry: Geometry, n_divisions: float = 0.5, **_params: Any) -> Geometry:
         """細分化エフェクトを適用します。
 
         Args:
-            vertices_list: 入力頂点配列
-            n_divisions: 細分化レベル (0.0 = 変化なし, 1.0 = 最大分割)
+            geometry: 入力Geometryオブジェクト
+            n_divisions: 細分化レベル (0.0 = 変化なし, 1.0 = 最大分割) - デフォルト 0.5
             **_params: 追加パラメータ（無視される）
 
         Returns:
-            細分化された頂点配列
+            細分化されたGeometry
         """
-        if not vertices_list or n_divisions <= 0.0:
-            return vertices_list
+        if n_divisions <= 0.0:
+            return geometry
 
         # Convert 0.0-1.0 to 0-MAX_DIVISIONS
         divisions = int(n_divisions * self.MAX_DIVISIONS)
         if divisions <= 0:
-            return vertices_list
+            return geometry
 
-        # Convert to uniform dtype for Numba compatibility
+        # 既存の線を取得し、細分化を適用
+        coords, offsets = geometry.as_arrays()
         result = []
-        for vertices in vertices_list:
-            result.append(_subdivide_core(vertices, divisions))
+        
+        for i in range(len(offsets) - 1):
+            vertices = coords[offsets[i]:offsets[i+1]]
+            subdivided = _subdivide_core(vertices, divisions)
+            result.append(subdivided)
 
-        return result
+        return Geometry.from_lines(result)
 
 
 @njit(fastmath=True, cache=True)

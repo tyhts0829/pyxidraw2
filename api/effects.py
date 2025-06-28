@@ -150,19 +150,19 @@ def translation(
 
 
 
-# def subdivision(vertices_list: list[np.ndarray], n_divisions: float = 0.0, **params: Any) -> list[np.ndarray]:
-#     """中間点を追加して線を細分化します。
+def subdivision(geometry: Geometry, n_divisions: float = 0.5, **params: Any) -> Geometry:
+    """中間点を追加して線を細分化します。
 
-#     Args:
-#         vertices_list: 入力頂点配列
-#         n_divisions: 細分化レベル (0.0 = 変化なし, 1.0 = 最大分割)
-#         **params: 追加パラメータ
+    Args:
+        geometry: 入力Geometry
+        n_divisions: 細分化レベル (0.0 = 変化なし, 1.0 = 最大分割) - デフォルト 0.5
+        **params: 追加パラメータ
 
-#     Returns:
-#         細分化された頂点配列
-#     """
-#     effect = Subdivision()
-#     return effect(vertices_list, n_divisions=n_divisions, **params)
+    Returns:
+        細分化されたGeometry
+    """
+    effect = Subdivision()
+    return effect(geometry, n_divisions=n_divisions, **params)
 
 
 # def culling(
@@ -293,23 +293,23 @@ def translation(
 #     return effect(vertices_list, direction=direction, distance=distance, **params)
 
 
-# def filling(
-#     vertices_list: list[np.ndarray], pattern: str = "lines", density: float = 0.5, angle: float = 0.5, **params: Any
-# ) -> list[np.ndarray]:
-#     """ハッチングパターンで閉じた形状を塗りつぶします。
+def filling(
+    geometry: Geometry, pattern: str = "lines", density: float = 0.5, angle: float = 0.0, **params: Any
+) -> Geometry:
+    """ハッチングパターンで閉じた形状を塗りつぶします。
 
-#     Args:
-#         vertices_list: 入力頂点配列（閉じた形状を形成する必要があります）
-#         pattern: 塗りつぶしパターンタイプ ("lines"、"cross"、"dots")
-#         density: 塗りつぶしの密度（パターン要素間の間隔）
-#         angle: パターンの角度（ラジアン）
-#         **params: 追加パラメータ
+    Args:
+        geometry: 入力Geometry（閉じた形状を形成する必要があります）
+        pattern: 塗りつぶしパターンタイプ ("lines"、"cross"、"dots")
+        density: 塗りつぶしの密度 (0.0-1.0)
+        angle: パターンの角度（ラジアン）
+        **params: 追加パラメータ
 
-#     Returns:
-#         塗りつぶしされた頂点配列
-#     """
-#     effect = Filling()
-#     return effect(vertices_list, pattern=pattern, density=density, angle=angle, **params)
+    Returns:
+        塗りつぶしされたGeometry
+    """
+    effect = Filling()
+    return effect(geometry, pattern=pattern, density=density, angle=angle, **params)
 
 
 # def trimming(
