@@ -434,7 +434,7 @@ def noise(
         ノイズが適用されたGeometry
     """
     effect = Noise()
-    return effect.apply_to_geometry(geometry, intensity=intensity, frequency=frequency, t=time, **params)
+    return effect.apply(geometry, intensity=intensity, frequency=frequency, t=time, **params)
 
 
 def buffer(

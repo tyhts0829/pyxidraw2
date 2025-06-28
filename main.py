@@ -23,7 +23,7 @@ def draw(t, cc) -> Geometry:
     # sph = buffer(sph, distance=cc[4])
     # sph = filling(sph, density=cc[5])
     # sph = subdivision(sph, n_divisions=cc[6])
-    # sph = noise(sph, intensity=cc[5])
+    sph = noise(sph, intensity=cc[5])
     return sph
 
 

@@ -128,12 +128,13 @@ grad3 = np.array(NOISE_CONST["GRAD3"], dtype=np.float32)
 class Noise(BaseEffect):
     """3次元頂点にPerlinノイズを追加します。"""
 
-    def apply_to_geometry(
+    def apply(
         self,
         geometry: Geometry,
         intensity: float = 0.5,
         frequency: tuple | float = (0.5, 0.5, 0.5),
         t: float = 0.0,
+        **params,
     ) -> Geometry:
         """GeometryにPerlinノイズエフェクトを適用します。
 
@@ -142,6 +143,7 @@ class Noise(BaseEffect):
             intensity: ノイズの強度
             frequency: ノイズの周波数（tuple or float）
             t: 時間パラメータ
+            **params: 追加パラメータ（BaseEffectとの互換性のため）
 
         Returns:
             Perlinノイズが適用されたGeometry
@@ -157,39 +159,6 @@ class Noise(BaseEffect):
         
         # 新しいGeometryを作成して返す
         return Geometry(new_coords, geometry.offsets.copy())
-
-    def apply(
-        self,
-        vertices_list: list[np.ndarray],
-        intensity: float = 0.5,
-        frequency: tuple | float = (0.5, 0.5, 0.5),
-        t: float = 0.0,
-    ) -> list[np.ndarray]:
-        """Perlinノイズエフェクトを適用します（後方互換性のため）。
-
-        Args:
-            vertices_list: 入力頂点配列（各配列は(N, 3)形状）
-            intensity: ノイズの強度
-            frequency: ノイズの周波数（tuple or float）
-            t: 時間パラメータ
-
-        Returns:
-            Perlinノイズが適用された頂点配列
-        """
-        # Geometryに変換
-        geometry = Geometry.from_lines(vertices_list)
-        
-        # エフェクトを適用
-        new_geometry = self.apply_to_geometry(geometry, intensity, frequency, t)
-        
-        # 元の形式に戻す
-        new_vertices_list = []
-        for i in range(len(geometry.offsets) - 1):
-            start = geometry.offsets[i]
-            end = geometry.offsets[i + 1]
-            new_vertices_list.append(new_geometry.coords[start:end])
-        
-        return new_vertices_list
 
 
 # api.effects用のラッパー関数
@@ -211,4 +180,4 @@ def noise(
         ノイズが適用されたGeometry
     """
     effect = Noise()
-    return effect.apply_to_geometry(geometry, intensity, frequency, time)
+    return effect.apply(geometry, intensity=intensity, frequency=frequency, t=time)
