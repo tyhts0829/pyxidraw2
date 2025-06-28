@@ -15,7 +15,14 @@ from .base import BaseEffect
 class Buffer(BaseEffect):
     """Shapelyを使用した高精度なバッファー/オフセット処理を行います。"""
 
-    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
+    def apply(
+        self, 
+        geometry: Geometry, 
+        distance: float = 0.5,
+        join_style: float = 0.5,
+        resolution: float = 0.5,
+        **params: Any
+    ) -> Geometry:
         """バッファーエフェクトを適用します。
 
         Shapelyライブラリを使用して高精度なバッファー処理を実行します。
@@ -30,9 +37,6 @@ class Buffer(BaseEffect):
         Returns:
             バッファー化されたGeometry
         """
-        distance = params.get("distance", 0.5)
-        join_style = params.get("join_style", 0.5)
-        resolution = params.get("resolution", 0.5)
 
         # 0.0-1.0 レンジを実際の距離値にスケール（25倍）
         actual_distance = distance * 25.0

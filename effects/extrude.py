@@ -16,7 +16,15 @@ class Extrude(BaseEffect):
     MAX_SCALE = 3.0      # 最大スケール率
     MAX_SUBDIVISIONS = 5  # 最大細分化ステップ数
     
-    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
+    def apply(
+        self, 
+        geometry: Geometry, 
+        direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        distance: float = 0.5,
+        scale: float = 0.5,
+        subdivisions: float = 0.5,
+        **params: Any
+    ) -> Geometry:
         """押し出しエフェクトを適用します。
         
         2D形状を指定された方向に押し出して3D構造を作成します。
@@ -32,19 +40,14 @@ class Extrude(BaseEffect):
         Returns:
             元の形状、押し出し形状、接続エッジを含む押し出しGeometry
         """
-        direction = params.get('direction', (0.0, 0.0, 1.0))
-        distance_param = params.get('distance', 0.5)
-        scale_param = params.get('scale', 0.5)
-        subdivisions_param = params.get('subdivisions', 0.5)
-        
         # パラメータをスケーリング
-        distance = distance_param * self.MAX_DISTANCE
-        scale = scale_param * self.MAX_SCALE
-        subdivisions = int(subdivisions_param * self.MAX_SUBDIVISIONS)
+        distance_scaled = distance * self.MAX_DISTANCE
+        scale_scaled = scale * self.MAX_SCALE
+        subdivisions_int = int(subdivisions * self.MAX_SUBDIVISIONS)
         
         # Apply subdivisions if requested
-        if subdivisions > 0:
-            geometry = self._subdivide_geometry(geometry, subdivisions)
+        if subdivisions_int > 0:
+            geometry = self._subdivide_geometry(geometry, subdivisions_int)
         
         # Normalize direction vector
         direction_array = np.array(direction, dtype=np.float32)
@@ -53,7 +56,7 @@ class Extrude(BaseEffect):
             return geometry  # Can't extrude with zero direction
         
         direction_normalized = direction_array / direction_norm
-        extrude_vector = direction_normalized * distance
+        extrude_vector = direction_normalized * distance_scaled
         
         # 元のジオメトリの線を取得
         lines = []
@@ -71,7 +74,7 @@ class Extrude(BaseEffect):
         # 押し出した形状を作成
         for line in lines:
             # Create extruded version
-            extruded_line = (line + extrude_vector) * scale
+            extruded_line = (line + extrude_vector) * scale_scaled
             extruded_lines.append(extruded_line)
             
             # Create connecting edges between original and extruded vertices

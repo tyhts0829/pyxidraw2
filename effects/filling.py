@@ -17,7 +17,14 @@ class Filling(BaseEffect):
     # 塗りつぶし線の最大密度（density=1.0のときの線間隔の係数）
     MAX_FILL_LINES = 100  # density=1.0のときに最大100本の線を生成
 
-    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
+    def apply(
+        self, 
+        geometry: Geometry, 
+        pattern: str = "lines",
+        density: float = 0.5,
+        angle: float = 0.0,
+        **params: Any
+    ) -> Geometry:
         """塗りつぶしエフェクトを適用します。
 
         Args:
@@ -30,9 +37,6 @@ class Filling(BaseEffect):
         Returns:
             元の形状と塗りつぶし線を含むGeometryオブジェクト
         """
-        pattern = params.get("pattern", "lines")
-        density = params.get("density", 0.5)
-        angle = params.get("angle", 0.0)
 
         if density <= 0:
             return geometry

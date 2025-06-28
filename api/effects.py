@@ -80,7 +80,7 @@ def rotation(
     Args:
         geometry: 入力Geometry
         center: 回転の中心点 (x, y, z)
-        rotate: 各軸周りの回転角度（ラジアン）(x, y, z)
+        rotate: 各軸周りの回転角度（ラジアン）(x, y, z) 0.0-1.0の範囲を想定。内部でmath.tauを掛けてラジアンに変換される。
         **params: 追加パラメータ
 
     Returns:
@@ -296,15 +296,19 @@ def extrude(
 
 
 def filling(
-    geometry: Geometry, pattern: str = "lines", density: float = 0.5, angle: float = 0.0, **params: Any
+    geometry: Geometry, 
+    pattern: str = "lines", 
+    density: float = 0.5, 
+    angle: float = 0.0, 
+    **params: Any
 ) -> Geometry:
     """ハッチングパターンで閉じた形状を塗りつぶします。
 
     Args:
         geometry: 入力Geometry（閉じた形状を形成する必要があります）
-        pattern: 塗りつぶしパターンタイプ ("lines"、"cross"、"dots")
-        density: 塗りつぶしの密度 (0.0-1.0)
-        angle: パターンの角度（ラジアン）
+        pattern: 塗りつぶしパターンタイプ ("lines"、"cross"、"dots") - デフォルト "lines"
+        density: 塗りつぶしの密度 (0.0-1.0) - デフォルト 0.5
+        angle: パターンの角度（ラジアン） - デフォルト 0.0
         **params: 追加パラメータ
 
     Returns:
@@ -433,20 +437,27 @@ def noise(
     return effect.apply_to_geometry(geometry, intensity=intensity, frequency=frequency, t=time, **params)
 
 
-def buffer(geometry: Geometry, distance: float = 0.5, join_style: float = 0.5, **params: Any) -> Geometry:
+def buffer(
+    geometry: Geometry, 
+    distance: float = 0.5, 
+    join_style: float = 0.5, 
+    resolution: float = 0.5,
+    **params: Any
+) -> Geometry:
     """パスの周りにバッファ/オフセットを作成します。
 
     Args:
         geometry: 入力Geometry
-        distance: バッファ距離 (0.0-1.0、内部で10倍される) - デフォルト 0.5
+        distance: バッファ距離 (0.0-1.0、内部で25倍される) - デフォルト 0.5
         join_style: 角の接合スタイル (0.0-1.0でround/mitre/bevelを選択) - デフォルト 0.5
+        resolution: バッファーの解像度 (0.0-1.0で1-10の整数値に変換) - デフォルト 0.5
         **params: 追加パラメータ
 
     Returns:
         バッファされたGeometry
     """
     effect = Buffer()
-    return effect(geometry, distance=distance, join_style=join_style, **params)
+    return effect(geometry, distance=distance, join_style=join_style, resolution=resolution, **params)
 
 
 def array(
