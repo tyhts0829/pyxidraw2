@@ -5,7 +5,10 @@ offsets  : int32   ndarray  (M+1,)   # 各線の開始 index（最後に N を�
 lines[i] = coords[offsets[i] : offsets[i+1]]
 """
 
+import hashlib
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -14,6 +17,7 @@ import numpy as np
 class Geometry:
     coords: np.ndarray  # shape (N, 3)  float32
     offsets: np.ndarray  # shape (M+1,)  int32
+    _cache_key: Optional[str] = None  # キャッシュキー
 
     # ── ファクトリ ───────────────────
     @classmethod
@@ -37,3 +41,184 @@ class Geometry:
     def __add__(self, other: "Geometry"):
         off_other = other.offsets + len(self.coords)
         return Geometry(np.concatenate([self.coords, other.coords]), np.concatenate([self.offsets[:-1], off_other]))
+
+    # ── キャッシュ関連メソッド ───────────────────
+    def _get_hash(self) -> str:
+        """Geometryデータのハッシュを計算"""
+        if self._cache_key is None:
+            # 座標とオフセットデータからハッシュを生成
+            coords_bytes = self.coords.tobytes()
+            offsets_bytes = self.offsets.tobytes()
+            combined = coords_bytes + offsets_bytes
+            self._cache_key = hashlib.md5(combined).hexdigest()
+        return self._cache_key
+
+    def _with_cache_key(self, operation: str, params: tuple) -> str:
+        """操作履歴を含むキャッシュキーを生成"""
+        base_hash = self._get_hash()
+        operation_str = f"{operation}:{params}"
+        combined = f"{base_hash}:{operation_str}"
+        return hashlib.md5(combined.encode()).hexdigest()
+
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def _cached_effect(cache_key: str, operation: str, geometry_hash: str, params: tuple) -> "Geometry":
+        """キャッシュされたエフェクト適用（実際の処理は別途呼び出し）"""
+        # このメソッドは直接使用せず、_apply_cached_effectから呼び出される
+        return None  # プレースホルダー # type: ignore
+
+    def _apply_cached_effect(self, operation: str, effect_func, *args, **kwargs) -> "Geometry":
+        """キャッシュ付きエフェクト適用"""
+        # パラメータをハッシュ可能な形に変換
+        hashable_args = self._make_params_hashable(args, kwargs)
+        cache_key = self._with_cache_key(operation, hashable_args)
+
+        # キャッシュを確認（メモリ上に直接保持）
+        if not hasattr(Geometry, "_effect_cache"):
+            Geometry._effect_cache = {}
+
+        if cache_key in Geometry._effect_cache:
+            return Geometry._effect_cache[cache_key]
+
+        # キャッシュミス：実際に計算
+        result = effect_func(self, *args, **kwargs)
+
+        # キャッシュサイズ制限（LRU風）
+        if len(Geometry._effect_cache) >= 256:
+            # 古いエントリを削除（簡易LRU）
+            oldest_key = next(iter(Geometry._effect_cache))
+            del Geometry._effect_cache[oldest_key]
+
+        Geometry._effect_cache[cache_key] = result
+        return result
+
+    def _make_params_hashable(self, args: tuple, kwargs: dict) -> tuple:
+        """パラメータをハッシュ可能な形に変換"""
+        hashable_items = []
+
+        # argsを処理
+        for arg in args:
+            if isinstance(arg, (tuple, list)):
+                hashable_items.append(tuple(arg))
+            elif isinstance(arg, np.ndarray):
+                hashable_items.append(tuple(arg.flatten().tolist()))
+            else:
+                hashable_items.append(arg)
+
+        # kwargsを処理（ソート済み）
+        for key, value in sorted(kwargs.items()):
+            if isinstance(value, (tuple, list)):
+                hashable_items.append((key, tuple(value)))
+            elif isinstance(value, np.ndarray):
+                hashable_items.append((key, tuple(value.flatten().tolist())))
+            else:
+                hashable_items.append((key, value))
+
+        return tuple(hashable_items)
+
+    # ── エフェクトメソッド（キャッシュ付きメソッドチェーン用） ───────────────────
+    def scale(
+        self, x: float = 1.0, y: float = 1.0, z: float = 1.0, center: tuple[float, float, float] = (0, 0, 0)
+    ) -> "Geometry":
+        """スケーリングを適用（キャッシュ付きメソッドチェーン対応）"""
+
+        def _scale_effect(geom, *args, **kwargs):
+            from api.effects import scaling
+
+            return scaling(geom, center=kwargs["center"], scale=kwargs["scale"])
+
+        return self._apply_cached_effect("scale", _scale_effect, center=center, scale=(x, y, z))
+
+    def translate(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> "Geometry":
+        """移動を適用（キャッシュ付きメソッドチェーン対応）"""
+
+        def _translate_effect(geom, *args, **kwargs):
+            from api.effects import translation
+
+            return translation(
+                geom, offset_x=kwargs["offset_x"], offset_y=kwargs["offset_y"], offset_z=kwargs["offset_z"]
+            )
+
+        return self._apply_cached_effect("translate", _translate_effect, offset_x=x, offset_y=y, offset_z=z)
+
+    def rotate(
+        self, x: float = 0.0, y: float = 0.0, z: float = 0.0, center: tuple[float, float, float] = (0, 0, 0)
+    ) -> "Geometry":
+        """回転を適用（キャッシュ付きメソッドチェーン対応）"""
+
+        def _rotate_effect(geom, *args, **kwargs):
+            from api.effects import rotation
+
+            return rotation(geom, center=kwargs["center"], rotate=kwargs["rotate"])
+
+        return self._apply_cached_effect("rotate", _rotate_effect, center=center, rotate=(x, y, z))
+
+    def transform(
+        self,
+        center: tuple[float, float, float] = (0, 0, 0),
+        scale: tuple[float, float, float] = (1, 1, 1),
+        rotate: tuple[float, float, float] = (0, 0, 0),
+    ) -> "Geometry":
+        """複合変換を適用（キャッシュ付きメソッドチェーン対応）"""
+
+        def _transform_effect(geom, *args, **kwargs):
+            from api.effects import transform
+
+            return transform(geom, center=kwargs["center"], scale=kwargs["scale"], rotate=kwargs["rotate"])
+
+        return self._apply_cached_effect("transform", _transform_effect, center=center, scale=scale, rotate=rotate)
+
+    # ── 便利なショートカットメソッド（キャッシュ対応） ───────────────────
+    def scale_uniform(self, factor: float, center: tuple[float, float, float] = (0, 0, 0)) -> "Geometry":
+        """一様スケーリング（ショートカット）"""
+        return self.scale(factor, factor, factor, center)
+
+    def rotate_z(self, angle: float, center: tuple[float, float, float] = (0, 0, 0)) -> "Geometry":
+        """Z軸周りの回転（ショートカット）"""
+        return self.rotate(0, 0, angle, center)
+
+    def move_to(self, x: float, y: float, z: float = 0) -> "Geometry":
+        """指定位置に移動（translate のエイリアス）"""
+        return self.translate(x, y, z)
+
+    def center_at(self, x: float, y: float, z: float = 0) -> "Geometry":
+        """指定位置を中心にする（現在の重心から移動）"""
+
+        def _center_at_effect(geom, *args, **kwargs):
+            # 現在の重心を計算
+            current_center = geom.coords.mean(axis=0)
+            target = np.array([kwargs["x"], kwargs["y"], kwargs["z"]])
+            offset = target - current_center
+            from api.effects import translation
+
+            return translation(geom, offset_x=offset[0], offset_y=offset[1], offset_z=offset[2])
+
+        return self._apply_cached_effect("center_at", _center_at_effect, x=x, y=y, z=z)
+
+    # ── 更に簡潔な記法のためのエイリアス ───────────────────
+    def at(self, x: float, y: float, z: float = 0) -> "Geometry":
+        """位置指定（center_at のエイリアス）"""
+        return self.center_at(x, y, z)
+
+    def size(self, factor: float) -> "Geometry":
+        """サイズ指定（scale_uniform のエイリアス）"""
+        return self.scale_uniform(factor)
+
+    # ── キャッシュ管理・デバッグ用メソッド ───────────────────
+    @classmethod
+    def clear_effect_cache(cls):
+        """エフェクトキャッシュをクリア"""
+        if hasattr(cls, "_effect_cache"):
+            cls._effect_cache.clear()
+
+    @classmethod
+    def get_cache_stats(cls) -> dict:
+        """キャッシュ統計を取得"""
+        if not hasattr(cls, "_effect_cache"):
+            return {"size": 0, "max_size": 256}
+
+        return {
+            "size": len(cls._effect_cache),
+            "max_size": 256,
+            "keys": list(cls._effect_cache.keys())[:5],  # 最初の5つのキーを表示
+        }
