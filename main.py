@@ -1,36 +1,31 @@
-import math
-
 import arc
 import numpy as np
 
-from api import effects, shapes
+from api.effects import (
+    buffer,
+    filling,
+    noise,
+    scaling,
+    subdivision,
+    transform,
+    translation,
+)
 from api.runner import run_sketch
+from api.shapes import polygon, polyhedron, sphere
+from engine.core.geometry import Geometry
 from util.constants import CANVAS_SIZES
 
-cw, ch = CANVAS_SIZES["SQUARE_200"]
 
-
-def draw(t, cc) -> list[np.ndarray]:
-    # Demonstrate new shape and effect system
-
-    # Use polygon shape with number of sides controlled by MIDI
-    polyh = shapes.polyhedron(
-        polygon_type="dodeca",
-        center=(cw / 2, ch / 2, 0),
-        scale=(80, 80, 80),
-        # rotate=(math.sin(t / 10) * 5, math.sin(t / 10) * 5, math.sin(t / 10) * 5),
-    )
-    scale = (cc[1], cc[1], cc[1])  # Use MIDI CC to control scale
-    rotate = (cc[2], cc[2], cc[2])  # Use MIDI CC to control rotation
-    offset = (cc[3] * 50, cc[3] * 50, cc[3] * 50)  # Use MIDI CC to control offset
-    polyh = effects.array(polyh, center=(cw / 2, ch / 2, 0), scale=scale, rotate=rotate, offset=offset)
-    # polyとpolyhを組み合わせて描画
-    ret = []
-    ret.extend(polyh)
-    return ret
+def draw(t, cc) -> Geometry:
+    sph = polyhedron(12).transform(center=(100, 100, 0), scale=(100, 100, 100), rotate=(cc[1], cc[2], cc[3]))
+    sph = buffer(sph, distance=cc[4])
+    sph = filling(sph, density=cc[5])
+    sph = subdivision(sph, n_divisions=cc[6])
+    sph = noise(sph, intensity=cc[5])
+    return sph
 
 
 if __name__ == "__main__":
-    arc.start(midi=True)
+    arc.start(midi=False)  # MIDIを無効化してテスト
     run_sketch(draw, canvas_size=CANVAS_SIZES["SQUARE_200"], render_scale=8, background=(1, 1, 1, 1))
     arc.stop()

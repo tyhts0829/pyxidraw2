@@ -270,25 +270,29 @@ def subdivision(geometry: Geometry, n_divisions: float = 0.5, **params: Any) -> 
 #     return effect(vertices_list, path=path, profile=profile, **params)
 
 
-# def extrude(
-#     vertices_list: list[np.ndarray],
-#     direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
-#     distance: float = 1.0,
-#     **params: Any,
-# ) -> list[np.ndarray]:
-#     """2D形状を3Dに押し出します。
+def extrude(
+    geometry: Geometry,
+    direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    distance: float = 0.5,
+    scale: float = 0.5,
+    subdivisions: float = 0.5,
+    **params: Any,
+) -> Geometry:
+    """2D形状を3Dに押し出します。
 
-#     Args:
-#         vertices_list: 入力頂点配列
-#         direction: 押し出し方向ベクトル
-#         distance: 押し出し距離
-#         **params: 追加パラメータ
+    Args:
+        geometry: 入力Geometry
+        direction: 押し出し方向ベクトル (x, y, z) - デフォルト (0, 0, 1)
+        distance: 押し出し距離 (0.0-1.0) - デフォルト 0.5
+        scale: 押し出したジオメトリのスケール率 (0.0-1.0) - デフォルト 0.5
+        subdivisions: 細分化ステップ数 (0.0-1.0) - デフォルト 0.5
+        **params: 追加パラメータ
 
-#     Returns:
-#         押し出しされた頂点配列
-#     """
-#     effect = Extrude()
-#     return effect(vertices_list, direction=direction, distance=distance, **params)
+    Returns:
+        押し出しされたGeometry
+    """
+    effect = Extrude()
+    return effect(geometry, direction=direction, distance=distance, scale=scale, subdivisions=subdivisions, **params)
 
 
 def filling(

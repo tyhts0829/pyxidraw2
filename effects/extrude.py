@@ -5,89 +5,104 @@ from typing import Any
 import numpy as np
 
 from .base import BaseEffect
+from engine.core.geometry import Geometry
 
 
 class Extrude(BaseEffect):
     """2D形状を3Dに押し出します。"""
     
-    def apply(self, vertices_list: list[np.ndarray], **params: Any) -> list[np.ndarray]:
+    # クラス定数（0.0-1.0のレンジから実際の値へのスケーリング）
+    MAX_DISTANCE = 200.0  # 最大押し出し距離
+    MAX_SCALE = 3.0      # 最大スケール率
+    MAX_SUBDIVISIONS = 5  # 最大細分化ステップ数
+    
+    def apply(self, geometry: Geometry, **params: Any) -> Geometry:
         """押し出しエフェクトを適用します。
         
         2D形状を指定された方向に押し出して3D構造を作成します。
         
         Args:
-            vertices_list: 入力頂点配列
+            geometry: 入力Geometryオブジェクト
             direction: 押し出し方向ベクトル (x, y, z) - デフォルト (0, 0, 1)
-            distance: 押し出し距離 - デフォルト 1.0
-            scale: 押し出したジオメトリのスケール率 - デフォルト 1.0
-            subdivisions: 細分化ステップ数 - デフォルト 0
+            distance: 押し出し距離 (0.0-1.0) - デフォルト 0.5
+            scale: 押し出したジオメトリのスケール率 (0.0-1.0) - デフォルト 0.5
+            subdivisions: 細分化ステップ数 (0.0-1.0) - デフォルト 0.5
             **params: 追加パラメータ
             
         Returns:
-            元の形状、押し出し形状、接続エッジを含む押し出し頂点配列
+            元の形状、押し出し形状、接続エッジを含む押し出しGeometry
         """
         direction = params.get('direction', (0.0, 0.0, 1.0))
-        distance = params.get('distance', 1.0)
-        scale = params.get('scale', 1.0)
-        subdivisions = params.get('subdivisions', 0)
+        distance_param = params.get('distance', 0.5)
+        scale_param = params.get('scale', 0.5)
+        subdivisions_param = params.get('subdivisions', 0.5)
+        
+        # パラメータをスケーリング
+        distance = distance_param * self.MAX_DISTANCE
+        scale = scale_param * self.MAX_SCALE
+        subdivisions = int(subdivisions_param * self.MAX_SUBDIVISIONS)
         
         # Apply subdivisions if requested
-        working_vertices_list = vertices_list.copy()
         if subdivisions > 0:
-            working_vertices_list = self._subdivide_vertices(working_vertices_list, subdivisions)
+            geometry = self._subdivide_geometry(geometry, subdivisions)
         
         # Normalize direction vector
-        direction_array = np.array(direction, dtype=np.float64)
+        direction_array = np.array(direction, dtype=np.float32)
         direction_norm = np.linalg.norm(direction_array)
         if direction_norm == 0:
-            return vertices_list  # Can't extrude with zero direction
+            return geometry  # Can't extrude with zero direction
         
         direction_normalized = direction_array / direction_norm
         extrude_vector = direction_normalized * distance
         
-        extruded_vertices_list = []
+        # 元のジオメトリの線を取得
+        lines = []
+        for i in range(len(geometry.offsets) - 1):
+            start_idx = geometry.offsets[i]
+            end_idx = geometry.offsets[i + 1]
+            line = geometry.coords[start_idx:end_idx]
+            lines.append(line)
         
-        # Create extruded copies
-        for vertices in working_vertices_list:
-            # Ensure vertices are 3D
-            if vertices.shape[1] == 2:
-                vertices_3d = np.hstack([vertices, np.zeros((len(vertices), 1))])
-            else:
-                vertices_3d = vertices.copy()
-            
+        extruded_lines = []
+        
+        # 元の形状を追加
+        extruded_lines.extend(lines)
+        
+        # 押し出した形状を作成
+        for line in lines:
             # Create extruded version
-            extruded_vertices = (vertices_3d + extrude_vector) * scale
-            extruded_vertices_list.append(extruded_vertices)
+            extruded_line = (line + extrude_vector) * scale
+            extruded_lines.append(extruded_line)
             
             # Create connecting edges between original and extruded vertices
-            for i in range(len(vertices_3d)):
-                segment = np.array([vertices_3d[i], extruded_vertices[i]])
-                extruded_vertices_list.append(segment)
+            for i in range(len(line)):
+                segment = np.array([line[i], extruded_line[i]], dtype=np.float32)
+                extruded_lines.append(segment)
         
-        # Add original geometry
-        for vertices in working_vertices_list:
-            if vertices.shape[1] == 2:
-                vertices_3d = np.hstack([vertices, np.zeros((len(vertices), 1))])
-            else:
-                vertices_3d = vertices.copy()
-            extruded_vertices_list.append(vertices_3d)
-        
-        return extruded_vertices_list
+        return Geometry.from_lines(extruded_lines)
     
-    def _subdivide_vertices(self, vertices_list: list[np.ndarray], subdivisions: int) -> list[np.ndarray]:
+    def _subdivide_geometry(self, geometry: Geometry, subdivisions: int) -> Geometry:
         """頂点密度を増やすための簡単な細分化を適用します。
         
         Args:
-            vertices_list: 入力頂点配列
+            geometry: 入力Geometryオブジェクト
             subdivisions: 細分化反復回数
             
         Returns:
-            細分化された頂点配列
+            細分化されたGeometryオブジェクト
         """
-        result = []
+        # 元のジオメトリの線を取得
+        lines = []
+        for i in range(len(geometry.offsets) - 1):
+            start_idx = geometry.offsets[i]
+            end_idx = geometry.offsets[i + 1]
+            line = geometry.coords[start_idx:end_idx]
+            lines.append(line)
         
-        for vertices in vertices_list:
-            current = vertices.copy()
+        # 各線を細分化
+        result_lines = []
+        for line in lines:
+            current = line.copy()
             
             for _ in range(subdivisions):
                 if len(current) < 2:
@@ -100,8 +115,8 @@ class Extrude(BaseEffect):
                     new_vertices.append(midpoint)
                     new_vertices.append(current[i + 1])
                 
-                current = np.array(new_vertices)
+                current = np.array(new_vertices, dtype=np.float32)
             
-            result.append(current)
+            result_lines.append(current)
         
-        return result
+        return Geometry.from_lines(result_lines)
