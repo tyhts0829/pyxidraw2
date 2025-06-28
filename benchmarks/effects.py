@@ -204,8 +204,8 @@ class GeometryEffectBenchmark:
 
     def get_geometry_effects(self) -> Dict[str, List[Tuple[str, Any]]]:
         """ベンチマーク対象のGeometry対応エフェクトを取得"""
-        # api.effectsからnoise関数をインポート
-        from api.effects import noise
+        # api.effectsから関数をインポート
+        from api.effects import noise, subdivision, extrude, filling, buffer, array
 
         return {
             "transform": [
@@ -234,6 +234,31 @@ class GeometryEffectBenchmark:
                 ("medium_intensity", lambda g: noise(g, intensity=0.5, frequency=1.0)),
                 ("high_intensity", lambda g: noise(g, intensity=1.0, frequency=1.0)),
                 ("high_frequency", lambda g: noise(g, intensity=0.5, frequency=3.0)),
+            ],
+            "subdivision": [
+                ("level_1", lambda g: subdivision(g, level=1)),
+                ("level_2", lambda g: subdivision(g, level=2)),
+                ("level_3", lambda g: subdivision(g, level=3)),
+            ],
+            "extrude": [
+                ("depth_10", lambda g: extrude(g, depth=10.0)),
+                ("depth_50", lambda g: extrude(g, depth=50.0)),
+                ("depth_100", lambda g: extrude(g, depth=100.0)),
+            ],
+            "filling": [
+                ("spacing_5", lambda g: filling(g, spacing=5.0)),
+                ("spacing_10", lambda g: filling(g, spacing=10.0)),
+                ("angle_45", lambda g: filling(g, spacing=10.0, angle=45.0)),
+            ],
+            "buffer": [
+                ("distance_2", lambda g: buffer(g, distance=2.0)),
+                ("distance_5", lambda g: buffer(g, distance=5.0)),
+                ("distance_10", lambda g: buffer(g, distance=10.0)),
+            ],
+            "array": [
+                ("grid_2x2", lambda g: array(g, count_x=2, count_y=2, spacing_x=20.0, spacing_y=20.0)),
+                ("grid_3x3", lambda g: array(g, count_x=3, count_y=3, spacing_x=15.0, spacing_y=15.0)),
+                ("linear_5", lambda g: array(g, count_x=5, count_y=1, spacing_x=10.0, spacing_y=0.0)),
             ],
         }
 
@@ -320,7 +345,12 @@ class GeometryEffectBenchmark:
                 "transform": "effects.transform",
                 "rotate": "effects.rotation",
                 "scale": "effects.scaling", 
-                "translate": "effects.translation"
+                "translate": "effects.translation",
+                "subdivision": "effects.subdivision",
+                "extrude": "effects.extrusion",
+                "filling": "effects.filling",
+                "buffer": "effects.buffer",
+                "array": "effects.array"
             }
             
             module_name = effect_modules.get(effect_name)
