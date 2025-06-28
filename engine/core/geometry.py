@@ -8,7 +8,7 @@ lines[i] = coords[offsets[i] : offsets[i+1]]
 import hashlib
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
@@ -37,13 +37,13 @@ class Geometry:
 
     def as_arrays(self, *, copy: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """coords, offsets を返す。copy=True ならディープコピー。
-        
+
         Args:
             copy: True なら独立したコピーを返す。False なら zero-copy view を返す。
-            
+
         Returns:
             tuple[np.ndarray, np.ndarray]: (coords, offsets) のタプル
-            
+
         Note:
             デフォルトの copy=False では、元の Geometry と同じメモリを共有する
             ビューを返すため、O(1) で取得でき、巨大データでも高速です。
@@ -222,21 +222,25 @@ class Geometry:
 
     def spin(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> "Geometry":
         """動的に計算された中心点で3軸回転（自分の重心を中心に回転）"""
+
         def _spin_effect(geom, **kwargs):
             # 現在の重心を計算
             current_center = geom.coords.mean(axis=0)
             from api.effects import rotation
+
             return rotation(geom, center=tuple(current_center), rotate=(kwargs["x"], kwargs["y"], kwargs["z"]))
-        
+
         return self._apply_cached_effect("spin", _spin_effect, x=x, y=y, z=z)
 
     # ── エフェクトメソッド（api/effectsの有効エフェクト） ───────────────────
     def subdivision(self, n_divisions: float = 0.5) -> "Geometry":
         """線を細分化（キャッシュ付きメソッドチェーン対応）"""
+
         def _subdivision_effect(geom, **kwargs):
             from api.effects import subdivision
+
             return subdivision(geom, n_divisions=kwargs["n_divisions"])
-        
+
         return self._apply_cached_effect("subdivision", _subdivision_effect, n_divisions=n_divisions)
 
     def extrude(
@@ -247,19 +251,20 @@ class Geometry:
         subdivisions: float = 0.5,
     ) -> "Geometry":
         """2D形状を3Dに押し出し（キャッシュ付きメソッドチェーン対応）"""
+
         def _extrude_effect(geom, **kwargs):
             from api.effects import extrude
+
             return extrude(
                 geom,
                 direction=kwargs["direction"],
                 distance=kwargs["distance"],
                 scale=kwargs["scale"],
-                subdivisions=kwargs["subdivisions"]
+                subdivisions=kwargs["subdivisions"],
             )
-        
+
         return self._apply_cached_effect(
-            "extrude", _extrude_effect,
-            direction=direction, distance=distance, scale=scale, subdivisions=subdivisions
+            "extrude", _extrude_effect, direction=direction, distance=distance, scale=scale, subdivisions=subdivisions
         )
 
     def filling(
@@ -269,19 +274,13 @@ class Geometry:
         angle: float = 0.0,
     ) -> "Geometry":
         """ハッチングパターンで塗りつぶし（キャッシュ付きメソッドチェーン対応）"""
+
         def _filling_effect(geom, **kwargs):
             from api.effects import filling
-            return filling(
-                geom,
-                pattern=kwargs["pattern"],
-                density=kwargs["density"],
-                angle=kwargs["angle"]
-            )
-        
-        return self._apply_cached_effect(
-            "filling", _filling_effect,
-            pattern=pattern, density=density, angle=angle
-        )
+
+            return filling(geom, pattern=kwargs["pattern"], density=kwargs["density"], angle=kwargs["angle"])
+
+        return self._apply_cached_effect("filling", _filling_effect, pattern=pattern, density=density, angle=angle)
 
     def noise(
         self,
@@ -290,19 +289,13 @@ class Geometry:
         time: float = 0.0,
     ) -> "Geometry":
         """Perlinノイズを適用（キャッシュ付きメソッドチェーン対応）"""
+
         def _noise_effect(geom, **kwargs):
             from api.effects import noise
-            return noise(
-                geom,
-                intensity=kwargs["intensity"],
-                frequency=kwargs["frequency"],
-                time=kwargs["time"]
-            )
-        
-        return self._apply_cached_effect(
-            "noise", _noise_effect,
-            intensity=intensity, frequency=frequency, time=time
-        )
+
+            return noise(geom, intensity=kwargs["intensity"], frequency=kwargs["frequency"], time=kwargs["time"])
+
+        return self._apply_cached_effect("noise", _noise_effect, intensity=intensity, frequency=frequency, time=time)
 
     def buffer(
         self,
@@ -311,18 +304,16 @@ class Geometry:
         resolution: float = 0.5,
     ) -> "Geometry":
         """パス周りにバッファ/オフセットを作成（キャッシュ付きメソッドチェーン対応）"""
+
         def _buffer_effect(geom, **kwargs):
             from api.effects import buffer
+
             return buffer(
-                geom,
-                distance=kwargs["distance"],
-                join_style=kwargs["join_style"],
-                resolution=kwargs["resolution"]
+                geom, distance=kwargs["distance"], join_style=kwargs["join_style"], resolution=kwargs["resolution"]
             )
-        
+
         return self._apply_cached_effect(
-            "buffer", _buffer_effect,
-            distance=distance, join_style=join_style, resolution=resolution
+            "buffer", _buffer_effect, distance=distance, join_style=join_style, resolution=resolution
         )
 
     def array(
@@ -334,20 +325,21 @@ class Geometry:
         center: tuple[float, float, float] = (0.0, 0.0, 0.0),
     ) -> "Geometry":
         """入力のコピーを配列状に生成（キャッシュ付きメソッドチェーン対応）"""
+
         def _array_effect(geom, **kwargs):
             from api.effects import array
+
             return array(
                 geom,
                 n_duplicates=kwargs["n_duplicates"],
                 offset=kwargs["offset"],
                 rotate=kwargs["rotate"],
                 scale=kwargs["scale"],
-                center=kwargs["center"]
+                center=kwargs["center"],
             )
-        
+
         return self._apply_cached_effect(
-            "array", _array_effect,
-            n_duplicates=n_duplicates, offset=offset, rotate=rotate, scale=scale, center=center
+            "array", _array_effect, n_duplicates=n_duplicates, offset=offset, rotate=rotate, scale=scale, center=center
         )
 
     # ── クラスメソッド（形状生成） ───────────────────
@@ -362,6 +354,7 @@ class Geometry:
     ) -> "Geometry":
         """正多角形を生成"""
         from api.shapes import polygon
+
         return polygon(n_sides, center, scale, rotate, **params)
 
     @classmethod
@@ -376,6 +369,7 @@ class Geometry:
     ) -> "Geometry":
         """球体を生成"""
         from api.shapes import sphere
+
         return sphere(subdivisions, sphere_type, center, scale, rotate, **params)
 
     @classmethod
@@ -389,6 +383,7 @@ class Geometry:
     ) -> "Geometry":
         """グリッドを生成"""
         from api.shapes import grid
+
         return grid(n_divisions, center, scale, rotate, **params)
 
     @classmethod
@@ -402,6 +397,7 @@ class Geometry:
     ) -> "Geometry":
         """正多面体を生成"""
         from api.shapes import polyhedron
+
         return polyhedron(polygon_type, center, scale, rotate, **params)
 
     @classmethod
@@ -418,6 +414,7 @@ class Geometry:
     ) -> "Geometry":
         """リサージュ曲線を生成"""
         from api.shapes import lissajous
+
         return lissajous(freq_x, freq_y, phase, points, center, scale, rotate, **params)
 
     @classmethod
@@ -434,6 +431,7 @@ class Geometry:
     ) -> "Geometry":
         """トーラスを生成"""
         from api.shapes import torus
+
         return torus(major_radius, minor_radius, major_segments, minor_segments, center, scale, rotate, **params)
 
     @classmethod
@@ -449,6 +447,7 @@ class Geometry:
     ) -> "Geometry":
         """円柱を生成"""
         from api.shapes import cylinder
+
         return cylinder(radius, height, segments, center, scale, rotate, **params)
 
     @classmethod
@@ -464,6 +463,7 @@ class Geometry:
     ) -> "Geometry":
         """円錐を生成"""
         from api.shapes import cone
+
         return cone(radius, height, segments, center, scale, rotate, **params)
 
     @classmethod
@@ -480,6 +480,7 @@ class Geometry:
     ) -> "Geometry":
         """カプセル形状を生成"""
         from api.shapes import capsule
+
         return capsule(radius, height, segments, latitude_segments, center, scale, rotate, **params)
 
     @classmethod
@@ -495,6 +496,7 @@ class Geometry:
     ) -> "Geometry":
         """ストレンジアトラクターを生成"""
         from api.shapes import attractor
+
         return attractor(attractor_type, points, dt, center, scale, rotate, **params)
 
     @classmethod
@@ -509,6 +511,7 @@ class Geometry:
     ) -> "Geometry":
         """テキストを線分として生成"""
         from api.shapes import text as text_shape
+
         return text_shape(text, size, center, scale, rotate, **params)
 
     @classmethod
@@ -523,6 +526,7 @@ class Geometry:
     ) -> "Geometry":
         """抽象的なグリフ状の形状を生成"""
         from api.shapes import asemic_glyph
+
         return asemic_glyph(complexity, seed, center, scale, rotate, **params)
 
     # ── キャッシュ管理・デバッグ用メソッド ───────────────────
