@@ -18,13 +18,14 @@ from util.constants import CANVAS_SIZES
 
 def draw(t, cc) -> Geometry:
     sph = (
-        Geometry.sphere(subdivisions=cc[1], sphere_type=cc[4])
+        Geometry.sphere(subdivisions=cc[1], sphere_type=cc[2])
         .transform(
             center=(100, 100, 0),
             scale=(100, 100, 100),
-            rotate=(cc[2], cc[2], cc[2]),
+            rotate=(cc[3], cc[3], cc[3]),
         )
-        .noise(intensity=cc[3])
+        .filling(density=cc[4])
+        .noise(intensity=cc[5])
     )
     # sph = buffer(sph, distance=cc[4])
     # sph = filling(sph, density=cc[5])
