@@ -332,6 +332,7 @@ class ReportGenerator:
                     <th>ステータス</th>
                     <th>平均時間</th>
                     <th>最適化</th>
+                    <th>シリアライズ</th>
                     <th>エラー</th>
                 </tr>
             </thead>
@@ -358,6 +359,17 @@ class ReportGenerator:
                 optimizations.append("Cache")
             optimization_str = ", ".join(optimizations) if optimizations else "-"
             
+            # シリアライズ情報
+            serialization_str = "-"
+            if "serialization_overhead" in metrics:
+                overhead = metrics["serialization_overhead"]
+                if "target_serialize_time" in overhead:
+                    target_time = overhead["target_serialize_time"] * 1000
+                    serialization_str = f"{target_time:.2f}ms"
+                if "geometry_serialize_time" in overhead:
+                    geom_time = overhead["geometry_serialize_time"] * 1000
+                    serialization_str += f" / {geom_time:.2f}ms"
+            
             error_str = result.get("error", "-") if not result["success"] else "-"
             
             html += f"""
@@ -366,6 +378,7 @@ class ReportGenerator:
                     <td>{status_text}</td>
                     <td>{avg_time_str}</td>
                     <td>{optimization_str}</td>
+                    <td>{serialization_str}</td>
                     <td>{error_str}</td>
                 </tr>
             """

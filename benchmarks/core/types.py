@@ -21,25 +21,45 @@ from numpy.typing import NDArray
 Vertices = NDArray[np.float32]  # shape: (N, 3)
 VerticesList = List[NDArray[np.float32]]  # 複数の線分
 
-# タイミングデータ
-TimingData = Dict[str, List[float]]  # {size_name: [time1, time2, ...]}
-BenchmarkMetrics = Dict[str, float]  # {metric_name: value}
-
-# ===== ベンチマーク結果の型定義 =====
+# ===== ベンチマーク結果の新しい型定義 =====
 
 BenchmarkStatus = Literal["success", "failed", "timeout", "error"]
 
 
-class BenchmarkResult(TypedDict):
+@dataclass
+class TimingData:
+    """タイミングデータの詳細情報"""
+    warm_up_times: List[float]
+    measurement_times: List[float]
+    total_time: float
+    average_time: float
+    std_dev: float
+    min_time: float
+    max_time: float
+
+
+@dataclass
+class BenchmarkMetrics:
+    """ベンチマークメトリクス"""
+    vertices_count: int
+    geometry_complexity: float
+    memory_usage: int
+    cache_hit_rate: float
+
+
+@dataclass
+class BenchmarkResult:
     """ベンチマーク結果の標準形式"""
-    module: str
-    timestamp: str
+    target_name: str
+    plugin_name: str
+    config: dict[str, Any]
+    timestamp: float
     success: bool
-    error: Optional[str]
-    status: BenchmarkStatus
-    timings: TimingData
-    average_times: Dict[str, float]
+    error_message: str
+    timing_data: TimingData
     metrics: BenchmarkMetrics
+    output_data: Optional[Any]
+    serialization_overhead: float
 
 
 class ModuleFeatures(TypedDict):

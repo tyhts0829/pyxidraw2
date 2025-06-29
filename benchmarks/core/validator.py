@@ -48,8 +48,8 @@ class BenchmarkValidator:
             )
 
         # 2. 成功ステータスの検証
-        if not result["success"]:
-            error_msg = result.get("error", "Unknown error")
+        if not result.success:
+            error_msg = result.error_message or "Unknown error"
             errors.append(f"Benchmark failed: {error_msg}")
             return ValidationResult(
                 is_valid=False,
@@ -84,18 +84,41 @@ class BenchmarkValidator:
         valid_count = 0
         
         for module_name, result in results.items():
+            # resultが辞書の場合はBenchmarkResultオブジェクトに変換
+            if isinstance(result, dict):
+                # 辞書形式の結果の場合、基本的な検証のみ実行
+                if result.get("success", False):
+                    valid_count += 1
+                continue
+            
             validation = self.validate_result(result)
             
-            if validation["is_valid"]:
-                valid_count += 1
+            # validationの型を確認
+            if hasattr(validation, 'is_valid'):
+                if validation.is_valid:
+                    valid_count += 1
+            elif isinstance(validation, dict):
+                # 辞書の場合
+                if validation.get("is_valid", False):
+                    valid_count += 1
+            else:
+                # 予期しない型の場合はスキップ
+                continue
             
             # エラーと警告にモジュール名を付加
-            module_errors = [f"{module_name}: {error}" for error in validation["errors"]]
-            module_warnings = [f"{module_name}: {warning}" for warning in validation["warnings"]]
+            if hasattr(validation, 'errors'):
+                module_errors = [f"{module_name}: {error}" for error in validation.errors]
+                module_warnings = [f"{module_name}: {warning}" for warning in validation.warnings]
+                all_metrics[module_name] = validation.metrics
+            elif isinstance(validation, dict):
+                module_errors = [f"{module_name}: {error}" for error in validation.get("errors", [])]
+                module_warnings = [f"{module_name}: {warning}" for warning in validation.get("warnings", [])]
+                all_metrics[module_name] = validation.get("metrics", {})
+            else:
+                continue
             
             all_errors.extend(module_errors)
             all_warnings.extend(module_warnings)
-            all_metrics[module_name] = validation["metrics"]
         
         # 全体的なメトリクスを追加
         total_modules = len(results)
@@ -121,7 +144,7 @@ class BenchmarkValidator:
     
     def compare_results(self, current: BenchmarkResult, baseline: BenchmarkResult) -> ComparisonResult:
         """2つのベンチマーク結果を比較"""
-        if not (current["success"] and baseline["success"]):
+        if not (current.success and baseline.success):
             raise ValidationError("Both results must be successful for comparison")
         
         # 平均実行時間を比較
@@ -159,13 +182,13 @@ class BenchmarkValidator:
                 comparison = self.compare_results(current[module_name], baseline[module_name])
                 
                 # 改善率が閾値を下回る（つまり悪化）かつ統計的に有意な場合
-                if (comparison["improvement_ratio"] < regression_threshold and 
-                    comparison["is_significant"]):
+                if (comparison.improvement_ratio < regression_threshold and 
+                    comparison.is_significant):
                     
-                    degradation = abs(comparison["improvement_ratio"]) * 100
+                    degradation = abs(comparison.improvement_ratio) * 100
                     regressions.append(
                         f"{module_name}: {degradation:.1f}% performance degradation "
-                        f"(p-value: {comparison['p_value']:.3f})"
+                        f"(p-value: {comparison.p_value:.3f})"
                     )
             
             except Exception as e:
@@ -175,13 +198,11 @@ class BenchmarkValidator:
     
     def calculate_performance_stats(self, result: BenchmarkResult) -> PerformanceStats:
         """パフォーマンス統計を計算"""
-        if not result["success"] or not result["timings"]:
+        if not result.success or not result.timing_data.measurement_times:
             raise ValidationError("Cannot calculate stats for unsuccessful result")
         
-        # 全タイミングデータを収集
-        all_times = []
-        for times in result["timings"].values():
-            all_times.extend(times)
+        # 測定時間データを取得
+        all_times = result.timing_data.measurement_times
         
         if not all_times:
             raise ValidationError("No timing data available")
@@ -202,52 +223,47 @@ class BenchmarkValidator:
         """ベンチマーク結果の構造を検証"""
         errors = []
         
-        required_fields = ["module", "timestamp", "success", "status", "timings", "average_times", "metrics"]
+        # 新しいdataclass形式の必須フィールドをチェック
+        required_attrs = ["target_name", "plugin_name", "timestamp", "success", "timing_data", "metrics"]
         
-        for field in required_fields:
-            if field not in result:
-                errors.append(f"Missing required field: {field}")
+        for attr in required_attrs:
+            if not hasattr(result, attr):
+                errors.append(f"Missing required attribute: {attr}")
         
-        # タイムスタンプの形式チェック
-        if "timestamp" in result:
+        # タイムスタンプの妥当性チェック
+        if hasattr(result, 'timestamp') and result.timestamp:
             try:
-                datetime.fromisoformat(result["timestamp"])
-            except ValueError:
-                errors.append("Invalid timestamp format")
+                # timestampはfloat型として保存されている
+                datetime.fromtimestamp(result.timestamp)
+            except (ValueError, OSError):
+                errors.append("Invalid timestamp value")
         
-        # ステータスの整合性チェック
-        if "success" in result and "status" in result:
-            if result["success"] and result["status"] != "success":
-                errors.append("Inconsistent success status")
-            elif not result["success"] and result["status"] == "success":
-                errors.append("Inconsistent failure status")
+        # タイミングデータの構造チェック
+        if hasattr(result, 'timing_data') and result.timing_data:
+            if not hasattr(result.timing_data, 'measurement_times'):
+                errors.append("Missing measurement_times in timing_data")
         
         return errors
     
-    def _validate_timings(self, result: BenchmarkResult) -> Tuple[List[str], List[str], BenchmarkMetrics]:
+    def _validate_timings(self, result: BenchmarkResult) -> Tuple[List[str], List[str], dict]:
         """タイミングデータを検証"""
         errors = []
         warnings = []
         metrics = {}
         
-        timings = result["timings"]
-        average_times = result["average_times"]
-        
-        if not timings:
+        if not hasattr(result, 'timing_data') or not result.timing_data:
             errors.append("No timing data available")
             return errors, warnings, metrics
         
-        # 各サイズのタイミングデータを検証
-        for size_name, times in timings.items():
-            if not times:
-                warnings.append(f"No timing data for {size_name}")
-                continue
-            
-            times_array = np.array(times)
+        timing_data = result.timing_data
+        
+        # 測定時間データの検証
+        if timing_data.measurement_times:
+            times_array = np.array(timing_data.measurement_times)
             
             # 負の値チェック
             if np.any(times_array < 0):
-                errors.append(f"Negative timing values in {size_name}")
+                errors.append("Negative timing values in measurement_times")
             
             # 異常値検出（平均から3標準偏差を超える値）
             if len(times_array) > 3:
@@ -257,24 +273,24 @@ class BenchmarkValidator:
                 
                 if np.any(outliers):
                     outlier_count = np.sum(outliers)
-                    warnings.append(f"{size_name}: {outlier_count} outlier(s) detected")
+                    warnings.append(f"measurement_times: {outlier_count} outlier(s) detected")
             
             # 変動係数（CV）チェック
             if len(times_array) > 1:
                 cv = np.std(times_array) / np.mean(times_array)
-                metrics[f"{size_name}_cv"] = float(cv)
+                metrics["measurement_cv"] = float(cv)
                 
                 if cv > 0.5:  # CV > 50%
-                    warnings.append(f"{size_name}: high variability (CV: {cv:.2%})")
+                    warnings.append(f"measurement_times: high variability (CV: {cv:.2%})")
             
             # 平均時間の整合性チェック
-            if size_name in average_times:
-                calculated_avg = np.mean(times_array)
-                reported_avg = average_times[size_name]
-                
+            calculated_avg = np.mean(times_array)
+            reported_avg = timing_data.average_time
+            
+            if reported_avg > 0:
                 relative_error = abs(calculated_avg - reported_avg) / calculated_avg
                 if relative_error > 0.01:  # 1%以上の誤差
-                    errors.append(f"{size_name}: average time mismatch")
+                    errors.append("average_time mismatch with measurement data")
         
         return errors, warnings, metrics
     
@@ -283,50 +299,52 @@ class BenchmarkValidator:
         errors = []
         warnings = []
         
-        metrics = result.get("metrics", {})
+        if not hasattr(result, 'metrics') or not result.metrics:
+            warnings.append("No metrics data available")
+            return errors, warnings
         
-        # メトリクスの範囲チェック
-        if "overall_avg_time" in metrics:
-            avg_time = metrics["overall_avg_time"]
+        metrics = result.metrics
+        
+        # 基本メトリクスの範囲チェック
+        if hasattr(metrics, 'vertices_count') and metrics.vertices_count < 0:
+            errors.append("Negative vertices count")
+        
+        if hasattr(metrics, 'geometry_complexity') and metrics.geometry_complexity < 0:
+            errors.append("Negative geometry complexity")
+        
+        if hasattr(metrics, 'memory_usage') and metrics.memory_usage < 0:
+            errors.append("Negative memory usage")
+        
+        if hasattr(metrics, 'cache_hit_rate'):
+            cache_hit_rate = metrics.cache_hit_rate
+            if cache_hit_rate < 0 or cache_hit_rate > 1:
+                errors.append(f"Invalid cache hit rate: {cache_hit_rate}")
+        
+        # タイミングデータの検証
+        if hasattr(result, 'timing_data') and result.timing_data:
+            avg_time = result.timing_data.average_time
             if avg_time < 0:
-                errors.append("Negative overall average time")
+                errors.append("Negative average time")
             elif avg_time > 10.0:  # 10秒以上
                 warnings.append(f"Very slow execution: {avg_time:.2f}s")
-        
-        if "overall_std_time" in metrics:
-            std_time = metrics["overall_std_time"]
-            if std_time < 0:
-                errors.append("Negative standard deviation")
-        
-        # 測定回数チェック
-        if "total_measurements" in metrics:
-            total_measurements = metrics["total_measurements"]
-            if total_measurements < 10:
-                warnings.append(f"Low measurement count: {total_measurements}")
         
         return errors, warnings
     
     def _calculate_overall_average(self, result: BenchmarkResult) -> float:
         """全体の平均実行時間を計算"""
-        if not result["average_times"]:
+        if not hasattr(result, 'timing_data') or not result.timing_data.measurement_times:
             return 0.0
         
-        return statistics.mean(result["average_times"].values())
+        return result.timing_data.average_time
     
     def _statistical_significance_test(self, 
                                      current: BenchmarkResult, 
                                      baseline: BenchmarkResult) -> Tuple[bool, Optional[float]]:
         """統計的有意性テスト（t検定）"""
         try:
-            # 全タイミングデータを収集
-            current_times = []
-            baseline_times = []
-            
-            for times in current["timings"].values():
-                current_times.extend(times)
-            
-            for times in baseline["timings"].values():
-                baseline_times.extend(times)
+            # 測定データを収集
+            current_times = current.timing_data.measurement_times if current.timing_data else []
+            baseline_times = baseline.timing_data.measurement_times if baseline.timing_data else []
             
             if len(current_times) < 3 or len(baseline_times) < 3:
                 return False, None
@@ -352,8 +370,22 @@ class BenchmarkResultAnalyzer:
     
     def analyze_results(self, results: Dict[str, BenchmarkResult]) -> Dict[str, any]:
         """ベンチマーク結果を包括的に分析"""
+        validation_result = self.validator.validate_multiple_results(results)
+        
+        # ValidationResultオブジェクトを辞書に変換（CLI互換性のため）
+        if hasattr(validation_result, 'is_valid'):
+            validation_dict = {
+                "is_valid": validation_result.is_valid,
+                "errors": validation_result.errors,
+                "warnings": validation_result.warnings,
+                "metrics": validation_result.metrics
+            }
+        else:
+            # 既に辞書の場合はそのまま使用
+            validation_dict = validation_result
+        
         analysis = {
-            "validation": self.validator.validate_multiple_results(results),
+            "validation": validation_dict,
             "summary": self._generate_summary(results),
             "performance_ranking": self._rank_by_performance(results),
             "statistics": self._calculate_statistics(results),
@@ -364,14 +396,14 @@ class BenchmarkResultAnalyzer:
     def _generate_summary(self, results: Dict[str, BenchmarkResult]) -> Dict[str, any]:
         """結果の要約を生成"""
         total = len(results)
-        successful = sum(1 for r in results.values() if r["success"])
+        successful = sum(1 for r in results.values() if r.success)
         failed = total - successful
         
         if successful > 0:
             all_times = []
             for result in results.values():
-                if result["success"] and result["average_times"]:
-                    all_times.extend(result["average_times"].values())
+                if result.success and result.timing_data and result.timing_data.average_time > 0:
+                    all_times.append(result.timing_data.average_time)
             
             if all_times:
                 fastest = min(all_times)
@@ -397,8 +429,8 @@ class BenchmarkResultAnalyzer:
         performance_data = []
         
         for module_name, result in results.items():
-            if result["success"] and result["average_times"]:
-                avg_time = statistics.mean(result["average_times"].values())
+            if result.success and result.timing_data and result.timing_data.average_time > 0:
+                avg_time = result.timing_data.average_time
                 performance_data.append((module_name, avg_time))
         
         # 実行時間でソート（昇順）
@@ -411,31 +443,28 @@ class BenchmarkResultAnalyzer:
         stats_data = {}
         
         # 成功したモジュールの統計
-        successful_results = [r for r in results.values() if r["success"]]
+        successful_results = [r for r in results.values() if r.success]
         
         if successful_results:
-            # njit使用率
-            njit_count = sum(1 for r in successful_results 
-                           if r.get("metrics", {}).get("has_njit", False))
-            njit_rate = njit_count / len(successful_results)
+            # 基本統計
+            total_vertices = sum(r.metrics.vertices_count for r in successful_results if r.metrics)
+            avg_complexity = statistics.mean(r.metrics.geometry_complexity for r in successful_results if r.metrics and r.metrics.geometry_complexity > 0) if any(r.metrics and r.metrics.geometry_complexity > 0 for r in successful_results) else 0
             
-            # キャッシュ使用率
-            cache_count = sum(1 for r in successful_results 
-                            if r.get("metrics", {}).get("has_cache", False))
-            cache_rate = cache_count / len(successful_results)
+            stats_data.update({
+                "total_vertices": total_vertices,
+                "average_complexity": avg_complexity
+            })
             
-            # 測定回数の統計
-            measurement_counts = [r.get("metrics", {}).get("total_measurements", 0) 
-                                for r in successful_results]
-            measurement_counts = [c for c in measurement_counts if c > 0]
-            
-            stats_data = {
-                "njit_usage_rate": njit_rate,
-                "cache_usage_rate": cache_rate,
-                "avg_measurements": statistics.mean(measurement_counts) if measurement_counts else 0,
-                "min_measurements": min(measurement_counts) if measurement_counts else 0,
-                "max_measurements": max(measurement_counts) if measurement_counts else 0,
-            }
+            # 実行時間の統計
+            execution_times = [r.timing_data.average_time for r in successful_results 
+                             if r.timing_data and r.timing_data.average_time > 0]
+            if execution_times:
+                stats_data.update({
+                    "average_execution_time": statistics.mean(execution_times),
+                    "median_execution_time": statistics.median(execution_times),
+                    "min_execution_time": min(execution_times),
+                    "max_execution_time": max(execution_times),
+                })
         
         return stats_data
 

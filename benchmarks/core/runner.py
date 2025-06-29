@@ -7,6 +7,7 @@
 並列実行、エラーハンドリング、結果収集を管理します。
 """
 
+import pickle
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -29,7 +30,10 @@ from benchmarks.core.exceptions import (
     get_error_collector,
     get_error_handler,
 )
+from benchmarks.core.execution import BenchmarkExecutor, BenchmarkResultProcessor
+from benchmarks.core.visualization import BenchmarkVisualizationGenerator
 from benchmarks.plugins.base import PluginManager, create_plugin_manager
+from benchmarks.plugins.serializable_targets import init_worker
 from engine.core.geometry import Geometry
 
 
@@ -41,6 +45,11 @@ class UnifiedBenchmarkRunner:
         self.plugin_manager = create_plugin_manager(self.config)
         self.error_handler = get_error_handler()
         self.error_collector = get_error_collector()
+        
+        # 新しい分離されたコンポーネント
+        self.executor = BenchmarkExecutor(self.config, self.error_handler, self.error_collector)
+        self.result_processor = BenchmarkResultProcessor()
+        self.visualization_generator = BenchmarkVisualizationGenerator(self.config, self.error_collector)
         
         # エラーハンドリング設定
         self.error_handler.configure(
@@ -157,15 +166,15 @@ class UnifiedBenchmarkRunner:
                 result = self.benchmark_target(target)
                 results[target.name] = result
                 
-                if result["success"]:
-                    avg_time = np.mean(list(result["average_times"].values())) if result["average_times"] else 0
+                if result.success:
+                    avg_time = result.timing_data.average_time if result.timing_data.average_time > 0 else 0
                     if avg_time > 0:
                         fps = 1.0 / avg_time
                         print(f"✓ ({fps:.1f} fps)")
                     else:
                         print("✓ (instant)")
                 else:
-                    print(f"✗ ({result.get('error', 'unknown error')})")
+                    print(f"✗ ({result.error_message or 'unknown error'})")
                     
             except Exception as e:
                 print(f"✗ (exception: {e})")
@@ -188,7 +197,12 @@ class UnifiedBenchmarkRunner:
         else:
             executor_class = ProcessPoolExecutor  # エフェクトはCPUバウンド
         
-        with executor_class(max_workers=max_workers) as executor:
+        # ProcessPoolExecutorの場合はinitializer設定
+        executor_kwargs = {"max_workers": max_workers}
+        if executor_class == ProcessPoolExecutor:
+            executor_kwargs["initializer"] = init_worker
+        
+        with executor_class(**executor_kwargs) as executor:
             # 全ターゲットを並列実行
             future_to_target = {
                 executor.submit(self._benchmark_target_isolated, target): target
@@ -204,7 +218,7 @@ class UnifiedBenchmarkRunner:
                     result = future.result(timeout=self.config.timeout_seconds)
                     results[target.name] = result
                     
-                    status = "✓" if result["success"] else "✗"
+                    status = "✓" if result.success else "✗"
                     print(f"  [{completed}/{len(targets)}] {target.name} {status}")
                     
                 except Exception as e:
@@ -220,65 +234,23 @@ class UnifiedBenchmarkRunner:
     
     def _benchmark_target_isolated(self, target: BenchmarkTarget) -> BenchmarkResult:
         """分離された環境でターゲットをベンチマーク（並列実行対応）"""
-        result = BenchmarkResult(
-            module=target.name,
-            timestamp=datetime.now().isoformat(),
-            success=False,
-            error=None,
-            status="failed",
-            timings={},
-            average_times={},
-            metrics={}
-        )
+        # 新しい分離されたコンポーネントを使用
+        result = self.executor.initialize_benchmark_result(target)
         
         try:
             with benchmark_operation(f"benchmark_{target.name}", target.name):
-                # 対象の特性を分析
-                plugin = self._get_plugin_for_target(target)
-                if plugin:
-                    features = plugin.analyze_target_features(target)
-                    result["metrics"].update({
-                        "has_njit": features.get("has_njit", False),
-                        "has_cache": features.get("has_cache", False),
-                        "function_count": features.get("function_count", 1),
-                    })
+                # ターゲット特性の測定
+                self.executor.measure_target_characteristics(target, result)
                 
-                # 形状生成かエフェクトかで処理を分岐
-                if self._is_shape_target(target):
-                    # 形状生成のベンチマーク
-                    times = self._benchmark_shape_generation(target)
-                    if times:
-                        result["timings"]["generation"] = times
-                        result["average_times"]["generation"] = float(np.mean(times))
-                else:
-                    # エフェクトのベンチマーク（複数のテストデータサイズ）
-                    for size_name, test_geom in self.test_geometries.items():
-                        times = self._benchmark_effect_application(target, test_geom)
-                        if times:
-                            result["timings"][size_name] = times
-                            result["average_times"][size_name] = float(np.mean(times))
+                # ベンチマーク測定実行
+                self.executor.execute_benchmark_measurements(target, result)
                 
-                # 成功判定
-                if result["timings"]:
-                    result["success"] = True
-                    result["status"] = "success"
-                    
-                    # 全体統計を計算
-                    all_times = [t for times in result["timings"].values() for t in times]
-                    result["metrics"]["total_measurements"] = len(all_times)
-                    result["metrics"]["overall_avg_time"] = float(np.mean(all_times))
-                    result["metrics"]["overall_std_time"] = float(np.std(all_times))
-                else:
-                    result["error"] = "No successful measurements"
-                    result["status"] = "error"
+                # 統計計算
+                self.executor.calculate_benchmark_statistics(result)
         
-        except BenchmarkTimeoutError as e:
-            result["error"] = f"Timeout: {str(e)}"
-            result["status"] = "timeout"
         except Exception as e:
-            result["error"] = f"Error: {str(e)}"
-            result["status"] = "error"
-            result["metrics"]["error_type"] = type(e).__name__
+            # 例外処理を分離されたコンポーネントに委譲
+            self.executor.handle_benchmark_exception(result, e)
         
         return result
     
@@ -347,6 +319,41 @@ class UnifiedBenchmarkRunner:
         ]
         return any(indicator in target.name for indicator in shape_indicators)
     
+    def _measure_serialization_overhead(self, target: BenchmarkTarget, test_geom: Optional[Any] = None) -> Dict[str, float]:
+        """シリアライズ/デシリアライズのオーバーヘッドを測定"""
+        overhead = {}
+        
+        # ターゲットのシリアライズ時間を測定
+        start_time = time.perf_counter()
+        try:
+            serialized_target = pickle.dumps(target)
+            overhead['target_serialize_time'] = time.perf_counter() - start_time
+            overhead['target_size_bytes'] = len(serialized_target)
+            
+            # デシリアライズ時間を測定
+            start_time = time.perf_counter()
+            pickle.loads(serialized_target)
+            overhead['target_deserialize_time'] = time.perf_counter() - start_time
+        except Exception as e:
+            overhead['target_serialize_error'] = str(e)
+        
+        # Geometryオブジェクトのシリアライズ時間を測定（エフェクトの場合）
+        if test_geom is not None:
+            start_time = time.perf_counter()
+            try:
+                serialized_geom = pickle.dumps(test_geom)
+                overhead['geometry_serialize_time'] = time.perf_counter() - start_time
+                overhead['geometry_size_bytes'] = len(serialized_geom)
+                
+                # デシリアライズ時間を測定
+                start_time = time.perf_counter()
+                pickle.loads(serialized_geom)
+                overhead['geometry_deserialize_time'] = time.perf_counter() - start_time
+            except Exception as e:
+                overhead['geometry_serialize_error'] = str(e)
+        
+        return overhead
+    
     def _get_plugin_for_target(self, target: BenchmarkTarget) -> Optional[Any]:
         """ターゲットに対応するプラグインを取得"""
         for plugin in self.plugin_manager.get_all_plugins():
@@ -359,11 +366,13 @@ class UnifiedBenchmarkRunner:
         """特定のターゲットのみベンチマークを実行"""
         all_targets = self.plugin_manager.get_all_targets()
         
-        # 名前でターゲットを検索
+        # 名前でターゲットを検索（プラグイン名付きと基本名の両方をサポート）
         selected_targets = []
-        for plugin_targets in all_targets.values():
+        for plugin_name, plugin_targets in all_targets.items():
             for target in plugin_targets:
-                if target.name in target_names:
+                # プラグイン名付きの完全名と基本名の両方をチェック
+                full_name = f"{plugin_name}.{target.name}"
+                if target.name in target_names or full_name in target_names:
                     selected_targets.append(target)
         
         if not selected_targets:
@@ -379,7 +388,7 @@ class UnifiedBenchmarkRunner:
             result = self.benchmark_target(target)
             results[target.name] = result
             
-            status = "✓" if result["success"] else "✗"
+            status = "✓" if result.success else "✗"
             print(status)
         
         # 自動ビジュアライゼーション
@@ -396,65 +405,20 @@ class UnifiedBenchmarkRunner:
             for plugin_name, targets in all_targets.items()
         }
     
+    def list_available_targets(self) -> List[str]:
+        """利用可能なターゲット一覧をフラットなリストで取得（CLI用）"""
+        all_targets = self.plugin_manager.get_all_targets()
+        target_list = []
+        for plugin_name, targets in all_targets.items():
+            for target in targets:
+                # プラグイン名を含めた完全な名前を使用
+                target_list.append(f"{plugin_name}.{target.name}")
+        return sorted(target_list)
+    
     def _generate_auto_visualization(self, results: Dict[str, BenchmarkResult]) -> None:
         """ベンチマーク結果の自動ビジュアライゼーション"""
-        try:
-            print("\n--- Generating Visualizations ---")
-            
-            from benchmarks.visualization.charts import ChartGenerator
-            from benchmarks.visualization.reports import ReportGenerator
-            
-            # チャート生成
-            chart_generator = ChartGenerator(self.config.output_dir)
-            chart_paths = []
-            
-            # パフォーマンスバーチャート
-            try:
-                bar_chart = chart_generator.create_performance_chart(results, "bar")
-                chart_paths.append(bar_chart)
-                print(f"📊 Bar chart: {bar_chart}")
-            except Exception as e:
-                print(f"Warning: Failed to create bar chart: {e}")
-            
-            # ボックスプロット（成功したターゲットが複数ある場合のみ）
-            successful_count = sum(1 for r in results.values() if r["success"])
-            if successful_count > 1:
-                try:
-                    box_chart = chart_generator.create_performance_chart(results, "box")
-                    chart_paths.append(box_chart)
-                    print(f"📦 Box plot: {box_chart}")
-                except Exception as e:
-                    print(f"Warning: Failed to create box plot: {e}")
-            
-            # ヒートマップ（成功したターゲットが複数ある場合のみ）
-            if successful_count > 2:
-                try:
-                    heatmap = chart_generator.create_performance_chart(results, "heatmap")
-                    chart_paths.append(heatmap)
-                    print(f"🔥 Heatmap: {heatmap}")
-                except Exception as e:
-                    print(f"Warning: Failed to create heatmap: {e}")
-            
-            # HTMLレポート生成
-            try:
-                report_generator = ReportGenerator(self.config.output_dir)
-                html_report = report_generator.generate_html_report(results, chart_paths)
-                print(f"📄 HTML report: {html_report}")
-            except Exception as e:
-                print(f"Warning: Failed to create HTML report: {e}")
-            
-            # Markdownレポート生成
-            try:
-                md_report = report_generator.generate_markdown_report(results, chart_paths)
-                print(f"📝 Markdown report: {md_report}")
-            except Exception as e:
-                print(f"Warning: Failed to create Markdown report: {e}")
-            
-            print("--- Visualization Complete ---")
-            
-        except Exception as e:
-            print(f"Error during visualization: {e}")
-            # ビジュアライゼーションのエラーはベンチマーク結果に影響しないので続行
+        # 新しい分離されたビジュアライゼーション生成コンポーネントに委譲
+        self.visualization_generator.generate_auto_visualization(results)
 
 
 # 便利関数

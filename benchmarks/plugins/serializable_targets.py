@@ -6,7 +6,53 @@
 pickle問題を解決するため、クロージャを使わないベンチマークターゲット実装。
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+# グローバル変数として各モジュールをキャッシュ
+_cached_modules: Dict[str, Any] = {}
+
+
+def _get_cached_module(module_name: str, function_name: Optional[str] = None):
+    """モジュールまたは関数を遅延インポートしてキャッシュ"""
+    cache_key = f"{module_name}.{function_name}" if function_name else module_name
+    
+    if cache_key not in _cached_modules:
+        if module_name == "api.effects":
+            import api.effects
+            if function_name:
+                _cached_modules[cache_key] = getattr(api.effects, function_name)
+            else:
+                _cached_modules[cache_key] = api.effects
+        elif module_name == "api.shapes":
+            import api.shapes
+            if function_name:
+                _cached_modules[cache_key] = getattr(api.shapes, function_name)
+            else:
+                _cached_modules[cache_key] = api.shapes
+        else:
+            raise ValueError(f"Unknown module: {module_name}")
+    
+    return _cached_modules[cache_key]
+
+
+def init_worker():
+    """ProcessPoolExecutorのワーカー初期化時に呼ばれる関数"""
+    # よく使われるモジュールを事前にインポート
+    try:
+        import api.effects
+        import api.shapes
+        _cached_modules['api.effects'] = api.effects
+        _cached_modules['api.shapes'] = api.shapes
+        
+        # 個別の関数もキャッシュ
+        for func_name in ['noise', 'subdivision', 'extrude', 'filling', 'buffer', 'array']:
+            _cached_modules[f'api.effects.{func_name}'] = getattr(api.effects, func_name)
+        
+        for func_name in ['polygon', 'grid', 'sphere', 'cylinder', 'cone', 'torus']:
+            _cached_modules[f'api.shapes.{func_name}'] = getattr(api.shapes, func_name)
+            
+    except ImportError:
+        pass  # インポートエラーは後で処理
 
 
 class SerializableEffectTarget:
@@ -31,29 +77,29 @@ class SerializableEffectTarget:
             rotate = self.params.get("rotate", (0, 0, 0))
             return geom.rotate(rotate[0], rotate[1], rotate[2])
         elif self.effect_type == "noise":
-            from api.effects import noise
+            noise = _get_cached_module("api.effects", "noise")
             intensity = self.params.get("intensity", 0.5)
             frequency = self.params.get("frequency", 1.0)
             return noise(geom, intensity=intensity, frequency=frequency)
         elif self.effect_type == "subdivision":
-            from api.effects import subdivision
+            subdivision = _get_cached_module("api.effects", "subdivision")
             level = self.params.get("level", 1)
             return subdivision(geom, level=level)
         elif self.effect_type == "extrude":
-            from api.effects import extrude
+            extrude = _get_cached_module("api.effects", "extrude")
             depth = self.params.get("depth", 10.0)
             return extrude(geom, depth=depth)
         elif self.effect_type == "filling":
-            from api.effects import filling
+            filling = _get_cached_module("api.effects", "filling")
             spacing = self.params.get("spacing", 10.0)
             angle = self.params.get("angle", 0.0)
             return filling(geom, spacing=spacing, angle=angle)
         elif self.effect_type == "buffer":
-            from api.effects import buffer
+            buffer = _get_cached_module("api.effects", "buffer")
             distance = self.params.get("distance", 5.0)
             return buffer(geom, distance=distance)
         elif self.effect_type == "array":
-            from api.effects import array
+            array = _get_cached_module("api.effects", "array")
             count_x = self.params.get("count_x", 2)
             count_y = self.params.get("count_y", 2)
             spacing_x = self.params.get("spacing_x", 10.0)
@@ -73,46 +119,46 @@ class SerializableShapeTarget:
     def __call__(self):
         """形状を生成"""
         if self.shape_type == "polygon":
-            from api.shapes import polygon
+            polygon = _get_cached_module("api.shapes", "polygon")
             return polygon(**self.params)
         elif self.shape_type == "grid":
-            from api.shapes import grid
+            grid = _get_cached_module("api.shapes", "grid")
             return grid(**self.params)
         elif self.shape_type == "sphere":
-            from api.shapes import sphere
+            sphere = _get_cached_module("api.shapes", "sphere")
             return sphere(**self.params)
         elif self.shape_type == "cylinder":
-            from api.shapes import cylinder
+            cylinder = _get_cached_module("api.shapes", "cylinder")
             return cylinder(**self.params)
         elif self.shape_type == "cone":
-            from api.shapes import cone
+            cone = _get_cached_module("api.shapes", "cone")
             return cone(**self.params)
         elif self.shape_type == "torus":
-            from api.shapes import torus
+            torus = _get_cached_module("api.shapes", "torus")
             return torus(**self.params)
         elif self.shape_type == "capsule":
-            from api.shapes import capsule
+            capsule = _get_cached_module("api.shapes", "capsule")
             return capsule(**self.params)
         elif self.shape_type == "polyhedron":
-            from api.shapes import polyhedron
+            polyhedron = _get_cached_module("api.shapes", "polyhedron")
             return polyhedron(**self.params)
         elif self.shape_type == "lissajous":
-            from api.shapes import lissajous_curve
+            lissajous_curve = _get_cached_module("api.shapes", "lissajous_curve")
             return lissajous_curve(**self.params)
         elif self.shape_type == "attractor":
             if self.params.get("attractor_type") == "lorenz":
-                from api.shapes import lorenz_attractor
+                lorenz_attractor = _get_cached_module("api.shapes", "lorenz_attractor")
                 return lorenz_attractor(**{k: v for k, v in self.params.items() if k != "attractor_type"})
             elif self.params.get("attractor_type") == "rossler":
-                from api.shapes import rossler_attractor
+                rossler_attractor = _get_cached_module("api.shapes", "rossler_attractor")
                 return rossler_attractor(**{k: v for k, v in self.params.items() if k != "attractor_type"})
             else:
                 raise ValueError(f"Unknown attractor type: {self.params.get('attractor_type')}")
         elif self.shape_type == "text":
-            from api.shapes import text
+            text = _get_cached_module("api.shapes", "text")
             return text(**self.params)
         elif self.shape_type == "asemic_glyph":
-            from api.shapes import asemic_glyph
+            asemic_glyph = _get_cached_module("api.shapes", "asemic_glyph")
             return asemic_glyph(**self.params)
         else:
             raise ValueError(f"Unknown shape type: {self.shape_type}")

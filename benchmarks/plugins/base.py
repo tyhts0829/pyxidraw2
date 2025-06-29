@@ -4,13 +4,16 @@
 ベンチマークプラグインシステム基底クラス
 
 プラグイン可能なベンチマークシステムのアーキテクチャを提供します。
+エラーハンドリング強化版。
 """
 
 import importlib
 import inspect
+import logging
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Union
 
 from benchmarks.core.types import (
     BenchmarkConfig,
@@ -18,7 +21,49 @@ from benchmarks.core.types import (
     BenchmarkTarget,
     ModuleFeatures,
 )
-from benchmarks.core.exceptions import ModuleDiscoveryError, benchmark_operation
+from benchmarks.core.exceptions import ModuleDiscoveryError, BenchmarkError, benchmark_operation
+
+# ロガー設定
+logger = logging.getLogger(__name__)
+
+
+class PluginLoadError(BenchmarkError):
+    """プラグイン読み込みエラー"""
+    def __init__(self, plugin_name: str, reason: str, original_error: Exception = None):
+        self.plugin_name = plugin_name
+        self.reason = reason
+        self.original_error = original_error
+        super().__init__(f"Plugin '{plugin_name}' load failed: {reason}")
+
+
+class PluginExecutionError(BenchmarkError):
+    """プラグイン実行エラー"""
+    def __init__(self, plugin_name: str, operation: str, original_error: Exception = None):
+        self.plugin_name = plugin_name
+        self.operation = operation
+        self.original_error = original_error
+        super().__init__(f"Plugin '{plugin_name}' execution failed during {operation}")
+
+
+@contextmanager
+def plugin_operation(operation_name: str, plugin_name: str = None):
+    """プラグイン操作のコンテキストマネージャー"""
+    try:
+        logger.debug(f"Starting plugin operation: {operation_name}")
+        yield
+        logger.debug(f"Completed plugin operation: {operation_name}")
+    except ImportError as e:
+        logger.error(f"{operation_name} failed - Import error: {e}")
+        raise PluginLoadError(plugin_name or "unknown", f"Import failed: {e}", e)
+    except AttributeError as e:
+        logger.error(f"{operation_name} failed - Attribute error: {e}")
+        raise PluginLoadError(plugin_name or "unknown", f"Attribute not found: {e}", e)
+    except ModuleDiscoveryError as e:
+        logger.error(f"{operation_name} failed - Module discovery error: {e}")
+        raise  # 既にカスタム例外なのでそのまま再発生
+    except Exception as e:
+        logger.warning(f"{operation_name} failed - Unexpected error: {e}")
+        raise PluginLoadError(plugin_name or "unknown", f"Unexpected error: {e}", e)
 
 
 class BenchmarkPlugin(ABC):
@@ -52,9 +97,29 @@ class BenchmarkPlugin(ABC):
     
     def get_targets(self, refresh: bool = False) -> List[BenchmarkTarget]:
         """ベンチマーク対象リストを取得（キャッシュあり）"""
-        if self._targets is None or refresh:
-            self._targets = self.discover_targets()
-        return self._targets
+        try:
+            if self._targets is None or refresh:
+                with plugin_operation(f"Discover targets for plugin {self.name}", self.name):
+                    targets = self.discover_targets()
+                    # 各ターゲットの妥当性を検証
+                    valid_targets = []
+                    for target in targets:
+                        if self.validate_target(target):
+                            valid_targets.append(target)
+                        else:
+                            logger.warning(f"Invalid target discovered: {getattr(target, 'name', 'unknown')}")
+                    
+                    self._targets = valid_targets
+                    logger.info(f"Discovered {len(valid_targets)} valid targets for plugin {self.name}")
+            
+            return self._targets or []
+            
+        except PluginLoadError:
+            logger.error(f"Failed to get targets for plugin {self.name}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting targets for plugin {self.name}: {e}")
+            return []
     
     def is_target_enabled(self, target_name: str) -> bool:
         """対象が有効かどうかをチェック"""
@@ -66,12 +131,41 @@ class BenchmarkPlugin(ABC):
         return {}
     
     def validate_target(self, target: BenchmarkTarget) -> bool:
-        """ベンチマーク対象の妥当性を検証"""
-        try:
-            # 基本的な検証：nameとexecuteメソッドがあるか
-            return hasattr(target, 'name') and hasattr(target, 'execute')
-        except Exception:
+        """ベンチマーク対象の妥当性を検証（強化版）"""
+        if not target:
+            logger.debug("Target validation failed - target is None or empty")
             return False
+        
+        # 必須属性のチェック
+        required_attributes = ['name', 'execute']
+        missing_attributes = []
+        
+        for attr in required_attributes:
+            if not hasattr(target, attr):
+                missing_attributes.append(attr)
+        
+        if missing_attributes:
+            logger.warning(f"Target validation failed - missing attributes: {missing_attributes}")
+            return False
+        
+        # executeメソッドが呼び出し可能かチェック
+        execute_method = getattr(target, 'execute', None)
+        if not callable(execute_method):
+            logger.warning("Target validation failed - execute method is not callable")
+            return False
+        
+        # 名前が有効な文字列かチェック
+        try:
+            name = getattr(target, 'name', None)
+            if not isinstance(name, str) or not name.strip():
+                logger.warning("Target validation failed - invalid name")
+                return False
+        except Exception as e:
+            logger.warning(f"Target validation failed - error accessing name: {e}")
+            return False
+        
+        logger.debug(f"Target validation passed for: {name}")
+        return True
 
 
 class PluginManager:
@@ -109,14 +203,30 @@ class PluginManager:
     def get_all_targets(self) -> Dict[str, List[BenchmarkTarget]]:
         """すべてのプラグインからベンチマーク対象を取得"""
         all_targets = {}
+        successful_plugins = []
+        failed_plugins = []
         
         for plugin in self.plugins.values():
             try:
-                targets = plugin.get_targets()
-                all_targets[plugin.name] = targets
-            except Exception as e:
-                print(f"Warning: Failed to get targets from plugin {plugin.name}: {e}")
+                with plugin_operation(f"Get targets from plugin {plugin.name}", plugin.name):
+                    targets = plugin.get_targets()
+                    all_targets[plugin.name] = targets
+                    successful_plugins.append(plugin.name)
+                    logger.debug(f"Successfully retrieved {len(targets)} targets from plugin {plugin.name}")
+                    
+            except PluginExecutionError as e:
+                logger.error(f"Plugin execution error getting targets from {plugin.name}: {e}")
                 all_targets[plugin.name] = []
+                failed_plugins.append((plugin.name, str(e)))
+            except Exception as e:
+                logger.warning(f"Unexpected error getting targets from plugin {plugin.name}: {e}")
+                all_targets[plugin.name] = []
+                failed_plugins.append((plugin.name, f"Unexpected error: {e}"))
+        
+        logger.info(f"Target retrieval completed: {len(successful_plugins)} successful, {len(failed_plugins)} failed")
+        
+        if failed_plugins:
+            logger.warning(f"Failed plugins: {[name for name, _ in failed_plugins]}")
         
         return all_targets
     
@@ -133,31 +243,72 @@ class PluginManager:
                     obj is not BenchmarkPlugin):
                     plugin_classes.append(obj)
         
+        except ImportError as e:
+            logger.error(f"Failed to import module {module_path}: {e}")
+            raise PluginLoadError(module_path, f"Import failed: {e}", e)
+        except PluginLoadError:
+            raise  # 既にカスタム例外なので再発生
         except Exception as e:
-            print(f"Warning: Failed to discover plugins in {module_path}: {e}")
+            logger.error(f"Unexpected error discovering plugins from {module_path}: {e}")
+            raise PluginLoadError(module_path, f"Unexpected discovery error: {e}", e)
         
         return plugin_classes
     
     def _auto_discover_plugins(self) -> None:
-        """プラグインを自動発見する"""
-        # 既知のプラグインモジュールを検索
+        """プラグインを自動発見する（強化版）"""
         plugin_modules = [
             "benchmarks.plugins.effects",
             "benchmarks.plugins.shapes",
         ]
         
+        successful_plugins = []
+        failed_plugins = []
+        
+        logger.info("Starting automatic plugin discovery")
+        
         for module_path in plugin_modules:
             try:
-                plugin_classes = self.discover_plugin_classes(module_path)
-                
-                for plugin_class in plugin_classes:
-                    # プラグインクラスをインスタンス化
-                    plugin_name = plugin_class.__name__.replace("BenchmarkPlugin", "").lower()
-                    plugin_instance = plugin_class(plugin_name, self.config)
-                    self.register_plugin(plugin_instance)
+                with plugin_operation(f"Auto-discover from {module_path}"):
+                    plugin_classes = self.discover_plugin_classes(module_path)
                     
+                    for plugin_class in plugin_classes:
+                        plugin_name = plugin_class.__name__.replace("BenchmarkPlugin", "").lower()
+                        
+                        try:
+                            with plugin_operation(f"Initialize plugin {plugin_name}", plugin_name):
+                                plugin_instance = plugin_class(plugin_name, self.config)
+                                self.register_plugin(plugin_instance)
+                                successful_plugins.append(plugin_name)
+                                logger.debug(f"Successfully registered plugin: {plugin_name}")
+                                
+                        except PluginLoadError as e:
+                            failed_plugins.append((plugin_name, str(e)))
+                            logger.error(f"Failed to initialize plugin {plugin_name}: {e}")
+                        except Exception as e:
+                            failed_plugins.append((plugin_name, f"Unexpected error: {e}"))
+                            logger.error(f"Unexpected error initializing plugin {plugin_name}: {e}")
+                        
+            except PluginLoadError as e:
+                failed_plugins.append((module_path, str(e)))
+                logger.warning(f"Failed to load plugins from {module_path}: {e}")
             except Exception as e:
-                print(f"Warning: Failed to auto-discover plugins from {module_path}: {e}")
+                failed_plugins.append((module_path, f"Critical error: {e}"))
+                logger.error(f"Critical error during plugin discovery from {module_path}: {e}")
+        
+        # 結果サマリ
+        logger.info(f"Plugin discovery completed: {len(successful_plugins)} successful, {len(failed_plugins)} failed")
+        
+        if successful_plugins:
+            logger.info(f"Successfully loaded plugins: {successful_plugins}")
+        
+        if failed_plugins:
+            logger.warning(f"Failed to load plugins: {[name for name, _ in failed_plugins]}")
+            
+        # 最低限のプラグインがロードされているかチェック
+        if len(successful_plugins) == 0:
+            logger.error("No plugins were successfully loaded! This may cause benchmark failures.")
+        elif len(successful_plugins) < len(plugin_modules):
+            logger.warning(f"Only {len(successful_plugins)}/{len(plugin_modules)} plugin modules loaded successfully")
 
 
 class BaseBenchmarkTarget:
@@ -187,23 +338,65 @@ class ModuleBenchmarkTarget(BaseBenchmarkTarget):
     def __init__(self, name: str, module_name: str, function_name: str, **metadata):
         self.module_name = module_name
         self.function_name = function_name
+        self._initialized = False
         
-        # 動的に関数を取得
+        # 動的に関数を取得（詳細エラーハンドリング付き）
         try:
-            module = importlib.import_module(module_name)
-            func = getattr(module, function_name)
+            with plugin_operation(f"Load module {module_name}"):
+                module = importlib.import_module(module_name)
+                logger.debug(f"Successfully imported module {module_name}")
+                
+            with plugin_operation(f"Get function {function_name} from {module_name}"):
+                if not hasattr(module, function_name):
+                    available_functions = [attr for attr in dir(module) if callable(getattr(module, attr, None))]
+                    raise AttributeError(f"Function '{function_name}' not found in module '{module_name}'. Available functions: {available_functions[:10]}")
+                
+                func = getattr(module, function_name)
+                
+                if not callable(func):
+                    raise AttributeError(f"'{function_name}' in module '{module_name}' is not callable")
+                
+                logger.debug(f"Successfully retrieved function {function_name} from {module_name}")
+            
             super().__init__(name, func, **metadata)
-        except Exception as e:
+            self._initialized = True
+            
+        except PluginLoadError:
+            logger.error(f"Plugin load error initializing ModuleBenchmarkTarget: {name}")
             raise ModuleDiscoveryError(f"Failed to load {function_name} from {module_name}", module_name)
+        except Exception as e:
+            logger.error(f"Critical error initializing ModuleBenchmarkTarget {name}: {e}")
+            raise ModuleDiscoveryError(f"Critical initialization error for {function_name} from {module_name}", module_name)
     
     def reload_function(self) -> None:
-        """関数を再読み込み"""
+        """関数を再読み込み（強化版）"""
         try:
-            module = importlib.import_module(self.module_name)
-            importlib.reload(module)
-            self._execute_func = getattr(module, self.function_name)
-        except Exception as e:
+            with plugin_operation(f"Reload module {self.module_name}"):
+                module = importlib.import_module(self.module_name)
+                importlib.reload(module)
+                
+            with plugin_operation(f"Re-get function {self.function_name}"):
+                self._execute_func = getattr(module, self.function_name)
+                
+            logger.debug(f"Successfully reloaded function {self.function_name} from {self.module_name}")
+            
+        except PluginLoadError:
+            logger.error(f"Plugin load error reloading {self.function_name} from {self.module_name}")
             raise ModuleDiscoveryError(f"Failed to reload {self.function_name} from {self.module_name}", self.module_name)
+        except Exception as e:
+            logger.error(f"Unexpected error reloading {self.function_name} from {self.module_name}: {e}")
+            raise ModuleDiscoveryError(f"Failed to reload {self.function_name} from {self.module_name}", self.module_name)
+    
+    def execute(self, *args, **kwargs) -> Any:
+        """ベンチマーク対象を実行（安全性チェック付き）"""
+        if not self._initialized:
+            raise RuntimeError(f"Target {self.name} is not properly initialized")
+        
+        try:
+            return super().execute(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Execution failed for target {self.name}: {e}")
+            raise
 
 
 class ParametrizedBenchmarkTarget(BaseBenchmarkTarget):
