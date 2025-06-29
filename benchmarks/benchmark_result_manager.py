@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-BenchmarkResult = Dict[str, Any]
+from benchmarks.core.types import BenchmarkResult
 
 
 class BenchmarkResultManager:
